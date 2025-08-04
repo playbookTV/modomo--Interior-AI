@@ -1,0 +1,35 @@
+# Core FastAPI and Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+structlog==23.2.0
+
+# AI/ML Core - Compatible versions
+torch==2.1.1
+torchvision==0.16.1
+transformers==4.36.0
+diffusers==0.24.0
+
+# Computer Vision
+opencv-python==4.8.1.78
+pillow==10.1.0
+numpy==1.24.3
+
+# Object Detection - YOLO only (no Detectron2)
+ultralytics==8.0.206
+
+# CLIP for Product Recognition
+transformers[torch]
+
+# Image Processing
+imageio==2.31.6
+
+# HTTP Client
+httpx==0.25.2
+aiofiles==23.2.1
+requests==2.31.0
+
+# Utilities
+tqdm==4.66.1 

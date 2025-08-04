@@ -1,0 +1,32 @@
+# Core FastAPI and Server
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+python-dotenv
+structlog
+
+# AI/ML Core - Latest compatible versions
+torch
+torchvision
+transformers
+diffusers
+
+# Computer Vision
+opencv-python
+pillow>=8.3.2
+numpy
+
+# Object Detection - YOLO only
+ultralytics
+
+# Image Processing
+imageio
+
+# HTTP Client
+httpx
+aiofiles
+requests
+
+# Utilities
+tqdm 

@@ -1,0 +1,6 @@
+{"environment":"development","level":"info","message":"Photo service started on port 3002","port":"3002","service":"photo-service","storage":"http://minio:9000","timestamp":"2025-08-03T01:02:16.979Z"}
+{"level":"info","message":"Created bucket: reroom-photos","service":"photo-service","timestamp":"2025-08-03T01:02:17.193Z"}
+{"level":"info","message":"::1 - - [03/Aug/2025:01:02:28 +0000] \"GET /health HTTP/1.1\" 200 142 \"-\" \"curl/8.7.1\"","service":"photo-service","timestamp":"2025-08-03T01:02:28.083Z"}
+{"level":"info","message":"::1 - - [03/Aug/2025:01:02:35 +0000] \"GET /api/photos HTTP/1.1\" 200 47 \"-\" \"curl/8.7.1\"","service":"photo-service","timestamp":"2025-08-03T01:02:35.381Z"}
+{"environment":"development","level":"info","message":"Photo service started on port 3002","port":"3002","service":"photo-service","storage":"http://minio:9000","timestamp":"2025-08-03T11:53:46.695Z"}
+{"level":"info","message":"::1 - - [03/Aug/2025:16:32:11 +0000] \"GET /health HTTP/1.1\" 200 148 \"-\" \"curl/8.7.1\"","service":"photo-service","timestamp":"2025-08-03T16:32:11.794Z"}

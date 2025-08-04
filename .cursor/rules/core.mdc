@@ -1,0 +1,82 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## Core Rules
+
+You have two modes of operation:
+
+1. Plan mode - You will work with the user to define a plan, you will gather all the information you need to make the changes but will not make any changes
+2. Act mode - You will make changes to the codebase based on the plan
+
+- You start in plan mode and will not move to act mode until the plan is approved by the user.
+- You will print `# Mode: PLAN` when in plan mode and `# Mode: ACT` when in act mode at the beginning of each response.
+- Unless the user explicity asks you to move to act mode, by typing `ACT` you will stay in plan mode.
+- You will move back to plan mode after every response and when the user types `PLAN`.
+- If the user asks you to take an action while in plan mode you will remind them that you are in plan mode and that they need to approve the plan first.
+- When in plan mode always output the full updated plan in every response.
+
+## Critical Architecture Patterns
+
+### Main File Architecture (CRITICAL)
+- **The project has TWO main files but only ONE is used by Figma:**
+  - `src/main.ts` - ACTUAL entry point used by Figma
+  - `src/main/index.ts` - UNUSED legacy file
+- **Handler Registration Rule:** ALL handler registrations MUST be in `src/main.ts` to work
+- **Debugging Tip:** Console logs show "[Plugin]" from actual file vs "[Main]" from unused file
+- **Registration Order:** log → storage → auth → project → frame → logo → color → font → asset
+
+### Handler Registration Pattern
+- Follow the EXACT pattern used by logo handlers for any new handlers
+- Import the registerXxxHandlers function in `src/main.ts`
+- Add registration call in the established order
+- Use consistent naming: GET_XXX, ADD_XXX, DELETE_XXX, etc.
+- Always include error handling with _ERROR suffixed events
+
+### Logo System Quirks  
+- Backend may store URLs with "@" prefix - always strip this in routes
+- Frontend should check both `imageUrl` AND `image_url` properties for compatibility
+- Logo deletion requires extracting type from ID format: `${projectId}-${type}`
+- Logo IDs need both capitalized and lowercase API attempts for deletion
+
+### Build System
+- Always use `pnpm` not `npm` for this project
+- Clean builds with `rm -rf dist && pnpm build` when handlers aren't registering
+- Restart Figma plugin after builds to ensure new handlers are loaded
+
+### Asset Management System - COMPLETE ✅
+- **Full Implementation**: Upload, storage, retrieval, and display all working
+- **Key Fix**: Storage vs retrieval mismatch - assets stored in JSONB but retrieved from wrong endpoint
+- **Solution**: Added GET route reading from projects.assets JSONB column with fresh URL generation
+- **Backend Architecture**: Dual projects router files caused confusion - projects.ts is actual, projects/index.ts unused
+- **Data Flow**: Frontend → Handler → Backend → JSONB Storage → Fresh URL generation → Display
+
+### Backend Project Router Architecture (CRITICAL)
+- **projects.ts** - ACTUAL router file imported by backend (main projects router)
+- **projects/index.ts** - UNUSED legacy file that can contain routes but won't be mounted
+- **Rule**: ALL route mounting must be in projects.ts to function
+- **Asset Routes**: Must be mounted in projects.ts as `router.use('/:projectId/assets', assetRoutes)`
+
+### PDF Export System - PRODUCTION READY ✅
+- **Complete Implementation**: Professional brand guidelines generation working end-to-end
+- **Key Achievement**: Image loading pipeline from database to PDF fully functional
+- **Critical Fix**: Data structure alignment between backend and frontend for consistent parsing
+- **Professional Quality**: Industry-standard layout design approved by users
+- **User Experience**: One-click export generating production-ready PDFs
+- **Architecture**: Database → Parser → Image URLs → PDF Generator → Professional Layout → Download
+- **Image Integration**: All brand kit images (logos, assets) load correctly in PDF exports
+- **Data Flow**: JSONB storage → Data extraction → Professional PDF layout → User download
+- **Production Status**: Ready for real-world usage with user-approved professional output
+
+### Figma Font Loading System - CRITICAL ISSUE ⚠️
+- **Current Blocking Issue**: Frame creation fails due to font loading inconsistency
+- **Root Cause**: Font style mismatch between loading and usage phases
+- **Error**: `Cannot write to node with unloaded font "Inter Regular"`
+- **Code Location**: `src/main/handlers/frameHandlers.ts`
+- **Font Loading Pattern**: MUST use consistent style naming throughout
+  - Load: `figma.loadFontAsync({ family: 'Inter', style: 'Regular' })`
+  - Use: `textNode.fontName = { family: 'Inter', style: 'Regular' }`
+  - ❌ **Never mix**: Load '400' but use 'Regular' - causes failure
+- **Figma Environment**: Inter font may not be pre-available, needs explicit loading
+- **Testing Required**: Verify font availability in actual Figma environment

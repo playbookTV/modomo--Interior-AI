@@ -1,0 +1,50 @@
+# Core FastAPI and Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+structlog==23.2.0
+
+# AI/ML Core
+torch==2.1.1
+torchvision==0.16.1
+transformers==4.36.0
+diffusers==0.24.0
+accelerate==0.25.0
+
+# Computer Vision
+opencv-python==4.8.1.78
+pillow==10.1.0
+numpy==1.24.3
+scikit-image==0.22.0
+
+# Object Detection Models
+ultralytics==8.0.206  # YOLOv8
+detectron2 @ git+https://github.com/facebookresearch/detectron2.git
+
+# Style Transfer & Generation
+controlnet-aux==0.0.7
+xformers==0.0.23
+
+# CLIP for Product Recognition
+clip-by-openai==1.0
+
+# Image Processing
+albumentations==1.3.1
+imageio==2.31.6
+
+# Database & Storage
+asyncpg==0.29.0
+redis==5.0.1
+boto3==1.34.0
+minio==7.2.0
+
+# HTTP Client
+httpx==0.25.2
+aiofiles==23.2.1
+requests==2.31.0
+
+# Utilities
+tqdm==4.66.1
+matplotlib==3.8.2 

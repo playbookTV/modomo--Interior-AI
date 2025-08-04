@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "neon": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@neondatabase/mcp-server-neon",
+        "--database-url=postgresql://brixa_owner:npg_r2qImW7PkYMl@ep-autumn-sun-ab3bar20-pooler.eu-west-2.aws.neon.tech/brixa?sslmode=require"
+      ]
+    }
+  }
+}
