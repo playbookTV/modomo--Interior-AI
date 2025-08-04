@@ -357,15 +357,19 @@ Biometric Gates: Face/Touch ID for sensitive actions
 ## Established Development Practices
 
 ### ✅ Proven Patterns (Currently Active)
-1. **Environment Setup:** Docker + pnpm + TypeScript = reliable foundation
-2. **Configuration:** Centralized .env with service-specific overrides
-3. **Error Resolution:** Document all fixes in memory bank for future reference
-4. **Version Management:** Conservative versions over cutting-edge for stability
-5. **Health Monitoring:** All services have health checks and proper logging
+1. **BNA UI Integration:** Theme system + component library = consistent UX
+2. **Expo Router:** File-based routing = clean navigation structure
+3. **EAS Build:** iOS/Android deployment pipeline ready
+4. **Hybrid Architecture:** Cloud backend + legacy services = migration flexibility
+5. **Environment Setup:** Docker + pnpm + TypeScript = reliable foundation
+6. **Configuration:** Centralized .env with service-specific overrides
+7. **Documentation:** Memory bank updates = context preservation across sessions
 
 ### 🎯 Patterns to Implement Next
-1. **Camera Integration:** react-native-vision-camera with permission handling
-2. **Photo Upload:** Multipart form data with progress tracking
-3. **API Structure:** RESTful endpoints with consistent error responses
-4. **State Management:** Zustand stores for app state + React Query for server data
-5. **Navigation:** Expo Router with typed routes and deep linking 
+1. **Camera Integration:** react-native-vision-camera with BNA UI components
+2. **Theme Integration:** Complete BNA UI theming across all screens
+3. **Backend Connection:** Mobile app to Railway cloud service integration
+4. **Authentication Flow:** Supabase auth with Clerk integration
+5. **Photo Upload:** Cloudflare R2 with progress tracking using BNA UI
+6. **Navigation Enhancement:** Tab navigation with BNA UI TabBarIcon components
+7. **State Management:** Zustand stores + React Query + theme context coordination 

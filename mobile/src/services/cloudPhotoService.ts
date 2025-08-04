@@ -1,13 +1,30 @@
 import { useAuth } from '@clerk/clerk-expo'
 import { createClient } from '@supabase/supabase-js'
-import ImageResizer from 'react-native-image-resizer'
+import ImageResizer from '@bam.tech/react-native-image-resizer'
 import { MMKV } from 'react-native-mmkv'
 import { Logger } from '../utils/logger'
 
-// Local storage for offline capability
+// Generate a unique encryption key based on device/user
+function getOrCreateEncryptionKey(): string {
+  const existingKey = MMKV.getString('reroom_encryption_key')
+  if (existingKey) {
+    return existingKey
+  }
+  
+  // Generate a new key using device characteristics and timestamp
+  const deviceId = require('react-native-device-info').getUniqueId?.() || 'unknown'
+  const timestamp = Date.now().toString()
+  const randomComponent = Math.random().toString(36)
+  
+  const newKey = `${deviceId}-${timestamp}-${randomComponent}`
+  MMKV.set('reroom_encryption_key', newKey)
+  return newKey
+}
+
+// Local storage for offline capability with dynamic encryption key
 const photoStorage = new MMKV({
   id: 'cloud-photo-storage',
-  encryptionKey: 'reroom-cloud-photos-key'
+  encryptionKey: getOrCreateEncryptionKey()
 })
 
 export interface CloudPhotoResult {

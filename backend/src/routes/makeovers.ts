@@ -1,4 +1,5 @@
 import express from 'express'
+import crypto from 'crypto'
 import { SupabaseService } from '../services/supabaseService'
 import { RunPodService } from '../services/runpodService'
 import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
@@ -6,6 +7,31 @@ import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
 const router: any = express.Router()
 const supabaseService = new SupabaseService()
 const runpodService = new RunPodService()
+
+// Webhook signature verification utility
+function verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
+  if (!secret) {
+    console.warn('⚠️ No webhook secret configured - skipping signature verification')
+    return true // Allow if no secret is set (for development)
+  }
+
+  try {
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(payload)
+      .digest('hex')
+    
+    const providedSignature = signature.replace('sha256=', '')
+    
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, 'hex'),
+      Buffer.from(providedSignature, 'hex')
+    )
+  } catch (error) {
+    console.error('❌ Webhook signature verification failed:', error)
+    return false
+  }
+}
 
 // =============================================================================
 // MAKEOVER MANAGEMENT ENDPOINTS
@@ -273,7 +299,19 @@ router.post('/callback', async (req, res) => {
   try {
     console.log('🔔 RunPod webhook received:', JSON.stringify(req.body, null, 2))
 
-    // Verify webhook authenticity (you might want to add signature verification)
+    // Verify webhook signature for security
+    const signature = req.headers['x-signature'] as string
+    const webhookSecret = process.env.RUNPOD_WEBHOOK_SECRET
+    const rawPayload = JSON.stringify(req.body)
+
+    if (!verifyWebhookSignature(rawPayload, signature || '', webhookSecret || '')) {
+      console.error('❌ Invalid webhook signature')
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid webhook signature'
+      })
+    }
+
     const payload = req.body
 
     if (!payload.id) {

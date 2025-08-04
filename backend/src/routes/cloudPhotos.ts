@@ -18,12 +18,35 @@ const upload = multer({
     files: 1 // Single file upload
   },
   fileFilter: (req, file, cb) => {
-    // Accept only images
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true)
-    } else {
-      cb(new Error('Only image files are allowed') as any, false)
+    // Enhanced file validation
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg', 
+      'image/png',
+      'image/webp',
+      'image/heic',
+      'image/heif'
+    ]
+    
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']
+    
+    // Check MIME type
+    if (!allowedMimeTypes.includes(file.mimetype.toLowerCase())) {
+      return cb(new Error(`Invalid file type: ${file.mimetype}. Only images are allowed.`) as any, false)
     }
+    
+    // Check file extension
+    const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'))
+    if (!allowedExtensions.includes(fileExtension)) {
+      return cb(new Error(`Invalid file extension: ${fileExtension}. Only image files are allowed.`) as any, false)
+    }
+    
+    // Additional security: check for suspicious filenames
+    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+      return cb(new Error('Invalid filename: path traversal characters not allowed') as any, false)
+    }
+    
+    cb(null, true)
   }
 })
 
@@ -49,7 +72,58 @@ router.post('/upload',
       }
 
       const { userId } = req.auth // From Clerk middleware
-      const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {}
+      
+      // Safe JSON parsing with validation
+      let metadata = {}
+      if (req.body.metadata) {
+        try {
+          const parsedMetadata = JSON.parse(req.body.metadata)
+          // Validate metadata structure
+          if (typeof parsedMetadata === 'object' && parsedMetadata !== null && !Array.isArray(parsedMetadata)) {
+            metadata = parsedMetadata
+          } else {
+            console.warn('Invalid metadata format, using default')
+          }
+        } catch (error) {
+          console.error('Failed to parse metadata JSON:', error)
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid metadata JSON format',
+            code: 'INVALID_METADATA'
+          })
+        }
+      }
+
+      // Additional file content validation
+      const file = req.file!
+      
+      // Check for minimum file size (avoid empty/corrupt files)
+      if (file.size < 1024) { // Less than 1KB
+        return res.status(400).json({
+          success: false,
+          error: 'File too small - may be corrupted',
+          code: 'FILE_TOO_SMALL'
+        })
+      }
+      
+      // Check file signature (magic numbers) for actual image content
+      const fileHeader = file.buffer.subarray(0, 12)
+      const isValidImage = 
+        // JPEG: FF D8 FF
+        (fileHeader[0] === 0xFF && fileHeader[1] === 0xD8 && fileHeader[2] === 0xFF) ||
+        // PNG: 89 50 4E 47
+        (fileHeader[0] === 0x89 && fileHeader[1] === 0x50 && fileHeader[2] === 0x4E && fileHeader[3] === 0x47) ||
+        // WebP: 52 49 46 46 ... 57 45 42 50
+        (fileHeader[0] === 0x52 && fileHeader[1] === 0x49 && fileHeader[2] === 0x46 && fileHeader[3] === 0x46 &&
+         fileHeader[8] === 0x57 && fileHeader[9] === 0x45 && fileHeader[10] === 0x42 && fileHeader[11] === 0x50)
+      
+      if (!isValidImage) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid image file - content does not match expected format',
+          code: 'INVALID_IMAGE_CONTENT'
+        })
+      }
 
       console.log(`📸 Processing photo upload for user: ${userId}`)
 

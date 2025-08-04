@@ -56,10 +56,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 // Compression for better performance
 app.use(compression())
 
-// Rate limiting
-const limiter = rateLimit({
+// Tiered rate limiting based on endpoint type
+const basicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs
+  max: 100, // Reduced from 1000 to 100 requests per IP
   message: {
     success: false,
     error: 'Too many requests, please try again later',
@@ -68,7 +68,23 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 })
-app.use(limiter)
+
+// More restrictive rate limiting for authenticated users
+const authLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 50, // 50 requests per 5 minutes for auth endpoints
+  keyGenerator: (req) => {
+    // Use user ID if authenticated, otherwise IP
+    return req.auth?.userId || req.ip
+  },
+  message: {
+    success: false,
+    error: 'Too many authenticated requests, please slow down',
+    code: 'AUTH_RATE_LIMIT_EXCEEDED'
+  }
+})
+
+app.use(basicLimiter)
 
 // Stricter rate limiting for uploads
 const uploadLimiter = rateLimit({
@@ -177,8 +193,8 @@ app.get('/status', (req, res) => {
 // =============================================================================
 
 // Apply upload rate limiter to photo routes
-app.use('/api/photos', uploadLimiter, cloudPhotosRouter)
-app.use('/api/makeovers', makeoversRouter)
+app.use('/api/photos', uploadLimiter, authLimiter, cloudPhotosRouter)
+app.use('/api/makeovers', authLimiter, makeoversRouter)
 
 // =============================================================================
 // ROOT ENDPOINT

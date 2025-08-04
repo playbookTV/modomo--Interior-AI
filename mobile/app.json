@@ -16,7 +16,8 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.reroom.mobile"
+      "bundleIdentifier": "com.reroom.mobile",
+      "newArchEnabled": false
     },
     "android": {
       "adaptiveIcon": {
@@ -34,6 +35,12 @@
       "expo-font",
       "expo-router",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2bbc7b4d-feda-41bd-9695-5c100972c2a4"
+      }
+    }
   }
 }

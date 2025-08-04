@@ -3,6 +3,8 @@ import os
 from typing import Dict, List, Optional, Tuple
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
+import re
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +40,102 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# Security and validation utilities
+MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB limit
+ALLOWED_DOMAINS = [
+    'localhost',
+    '127.0.0.1',
+    'your-railway-app.railway.app',
+    'cloudflare.com',
+    'amazonaws.com',
+    'supabase.co'
+]
+
+def validate_image_url(url: str) -> bool:
+    """Validate image URL for security"""
+    try:
+        parsed = urlparse(url)
+        
+        # Check scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False
+            
+        # Check domain whitelist
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+            
+        # Allow localhost for development
+        if hostname in ['localhost', '127.0.0.1']:
+            return True
+            
+        # Check against allowed domains
+        domain_allowed = any(
+            hostname.endswith(domain) or hostname == domain
+            for domain in ALLOWED_DOMAINS
+        )
+        
+        if not domain_allowed:
+            logger.warning(f"Domain not allowed: {hostname}")
+            return False
+            
+        # Prevent private IP ranges
+        if re.match(r'^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)', hostname):
+            logger.warning(f"Private IP not allowed: {hostname}")
+            return False
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"URL validation error: {e}")
+        return False
+
+def download_image_safely(url: str) -> Image.Image:
+    """Safely download and validate image"""
+    if not validate_image_url(url):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe image URL")
+    
+    try:
+        # Download with size limit and timeout
+        response = requests.get(
+            url, 
+            timeout=30,
+            stream=True,
+            headers={'User-Agent': 'ReRoom-AI-Service/2.0'}
+        )
+        response.raise_for_status()
+        
+        # Check content length
+        content_length = response.headers.get('content-length')
+        if content_length and int(content_length) > MAX_IMAGE_SIZE:
+            raise HTTPException(status_code=400, detail="Image too large (max 50MB)")
+        
+        # Download with size checking
+        content = b''
+        for chunk in response.iter_content(chunk_size=8192):
+            content += chunk
+            if len(content) > MAX_IMAGE_SIZE:
+                raise HTTPException(status_code=400, detail="Image too large (max 50MB)")
+        
+        # Validate it's actually an image
+        try:
+            image = Image.open(requests.get(url, stream=True).raw)
+            # Verify image format
+            if image.format not in ['JPEG', 'PNG', 'WEBP']:
+                raise HTTPException(status_code=400, detail="Unsupported image format")
+            return image
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid image file")
+            
+    except requests.RequestException as e:
+        logger.error(f"Image download failed: {e}")
+        raise HTTPException(status_code=400, detail="Failed to download image")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Image processing error: {e}")
+        raise HTTPException(status_code=500, detail="Image processing failed")
+
 # FastAPI app
 app = FastAPI(
     title="ReRoom AI Service - REAL MODELS",
@@ -45,13 +143,24 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS middleware
+# CORS middleware - restrict origins for security
+allowed_origins = [
+    "http://localhost:8081",  # Expo dev server
+    "http://localhost:19002", # Expo dev tools
+    "http://localhost:3000",  # Cloud backend
+    "https://your-railway-app.railway.app",  # Production backend
+]
+
+# Add production mobile app origins if env vars are set
+if os.getenv("EXPO_PUBLIC_API_BASE_URL"):
+    allowed_origins.append(os.getenv("EXPO_PUBLIC_API_BASE_URL"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,  # Disable credentials for security
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # Global AI model instances
@@ -373,12 +482,8 @@ async def create_room_makeover(request: RoomMakeoverRequest, background_tasks: B
                    makeover_id=makeover_id,
                    style=request.style_preference)
         
-        # Download and process the image
-        response = requests.get(request.photo_url, timeout=30)
-        response.raise_for_status()
-        
-        # Open image with PIL
-        image = Image.open(requests.get(request.photo_url, stream=True).raw)
+        # Safely download and validate the image
+        image = download_image_safely(request.photo_url)
         
         # 1. REAL Object Detection (YOLO)
         detected_objects = await real_object_detection(image)

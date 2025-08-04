@@ -88,21 +88,30 @@ pnpm run db:seed
 ## Architecture
 
 ### Monorepo Structure
-- **mobile/**: React Native app with Expo
-- **backend/**: Microservices architecture
-  - **auth-service/**: User authentication (Node.js + Express + Prisma)
-  - **photo-service/**: Image upload/storage (Node.js + Express + MinIO)
+- **mobile/**: React Native app with Expo 53 + BNA UI framework
+  - **src/app/**: Expo Router screens (index, camera, gallery, makeover)
+  - **src/components/ui/**: BNA UI components (Button, Card, Text, etc.)
+  - **src/theme/**: Theme system with light/dark mode support
+  - **src/services/**: API services and business logic
+  - **src/stores/**: Zustand state management
+- **backend/**: Hybrid architecture (Cloud + Legacy microservices)
+  - **Cloud Backend (v2.0.0)**: Unified Railway service with Supabase + Cloudflare R2
+  - **auth-service/**: Legacy user authentication (Node.js + Express)
+  - **photo-service/**: Legacy image upload/storage (Node.js + Express)
   - **ai-service/**: AI processing pipeline (Python + FastAPI + Stable Diffusion)
 - **shared/**: Common types and utilities (planned)
+- **memory-bank/**: Project context and documentation
+- **documentation/**: PRDs and technical specifications
 
 ### Key Technologies
-- **Mobile**: React Native 0.73, Expo 50, Zustand (state), React Query (data fetching)
+- **Mobile**: React Native 0.79, Expo 53, Zustand (state), React Query (data fetching)
 - **UI Framework**: BNA UI (Ahmedbna) with comprehensive theming system
-- **Backend**: Node.js 18+, Express, TypeScript, Prisma ORM
+- **Backend**: Node.js 18+, Express, TypeScript, Supabase integration
+- **Cloud**: Railway hosting, Cloudflare R2 storage, Supabase database
 - **AI**: Python 3.11+, FastAPI, Stable Diffusion XL, SAM2, Depth-Anything-V2
 - **Databases**: PostgreSQL, Redis, Qdrant (vector DB)
-- **Storage**: MinIO (S3-compatible)
-- **Package Manager**: pnpm 9+ (required)
+- **Storage**: MinIO (local dev), Cloudflare R2 (production)
+- **Package Manager**: pnpm 9.12.0 (required)
 
 ### Environment Requirements
 - Node.js 18+
@@ -117,11 +126,12 @@ pnpm run db:seed
 4. AI service runs with `uvicorn main:app --reload --port 8000`
 
 ### Service URLs (Development)
-- Mobile App: http://localhost:19002 (Expo DevTools)
-- Auth Service: http://localhost:3001
-- Photo Service: http://localhost:3002  
-- AI Service: http://localhost:8000
-- MinIO Console: http://localhost:9001
+- Mobile App: http://localhost:8081 (Expo DevTools) / QR Code for device testing
+- Cloud Backend: http://localhost:3000 (Unified Railway service)
+- Auth Service: http://localhost:3001 (Legacy - being migrated)
+- Photo Service: http://localhost:3002 (Legacy - being migrated)
+- AI Service: http://localhost:8000 (Python FastAPI)
+- MinIO Console: http://localhost:9001 (S3-compatible storage)
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 - Qdrant: localhost:6333
@@ -144,19 +154,24 @@ pnpm run db:seed
 - Redis for caching and sessions
 - Qdrant for AI embeddings
 
-### UI Framework (BNA UI)
-- **Components**: Button, Card, Text, TabBarIcon, CameraView available
+### UI Framework (BNA UI by Ahmedbna)
+- **Components**: Button, Card, Text, TabBarIcon, CameraView available in `@/components/ui`
 - **Theming**: Comprehensive light/dark mode support with ReRoom brand colors
 - **Type Safety**: Full TypeScript integration with theme-aware components
 - **Path Aliases**: Use `@/components/ui`, `@/theme/*`, `@/hooks/*` imports
 - **Theme Provider**: All screens wrapped with ThemeProvider for consistent styling
 - **Color System**: Primary (#0066FF), Secondary, Accent colors with semantic variants
+- **Theme Files**: `@/theme/colors.ts`, `@/theme/globals.ts`, `@/theme/theme-provider.tsx`
+- **Usage**: Import components from `@/components/ui` and use theme-aware styling
 
 ### Key Development Notes
-- Always use pnpm, not npm or yarn
+- Always use pnpm, not npm or yarn (pnpm@9.12.0 required)
 - Mobile app uses Expo managed workflow with BNA UI components
-- Backend services are independently deployable
+- Backend has unified cloud service (v2.0.0) on Railway with legacy microservices
 - AI service requires significant memory (8GB+ Docker allocation)
 - Pre-commit hooks automatically format and lint code
 - Use `pnpm run clean` to reset node_modules if needed
 - BNA UI components should be used instead of raw React Native components for consistency
+- Mobile app structure: Expo Router with file-based routing in `src/app/`
+- Current screens: index (home), camera, gallery, makeover with planned (tabs) navigation
+- Architecture is transitioning from microservices to hybrid cloud + legacy approach

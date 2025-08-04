@@ -23,14 +23,27 @@ export class StorageService {
   private bucketName: string;
 
   constructor() {
+    // Validate required environment variables
+    const requiredEnvVars = {
+      AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+      S3_ENDPOINT: process.env.S3_ENDPOINT,
+    };
+
+    for (const [key, value] of Object.entries(requiredEnvVars)) {
+      if (!value) {
+        throw new Error(`Missing required environment variable: ${key}`);
+      }
+    }
+
     this.bucketName = process.env.S3_BUCKET || 'reroom-photos';
     
     this.minioClient = new MinioClient({
-      endPoint: process.env.S3_ENDPOINT?.replace('http://', '').replace('https://', '') || 'localhost',
+      endPoint: process.env.S3_ENDPOINT!.replace('http://', '').replace('https://', ''),
       port: parseInt(process.env.S3_PORT || '9000'),
       useSSL: process.env.S3_USE_SSL === 'true',
-      accessKey: process.env.AWS_ACCESS_KEY_ID || 'minioadmin',
-      secretKey: process.env.AWS_SECRET_ACCESS_KEY || 'minioadmin',
+      accessKey: process.env.AWS_ACCESS_KEY_ID!,
+      secretKey: process.env.AWS_SECRET_ACCESS_KEY!,
     });
 
     this.initializeBucket();

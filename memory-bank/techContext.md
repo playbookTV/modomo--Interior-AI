@@ -3,39 +3,51 @@
 ## Technology Stack
 
 ### Frontend (Mobile App)
-**React Native 0.73+ (New Architecture)**
-- **Framework:** Expo SDK 50+ (Managed workflow for rapid development)
+**React Native 0.79 (New Architecture)**
+- **Framework:** Expo SDK 53 (Managed workflow for rapid development)
 - **Language:** TypeScript (Strict mode for type safety)
+- **UI Framework:** BNA UI (Ahmedbna) with comprehensive theming system
 - **State Management:** Zustand + React Query (lightweight, performant)
-- **Navigation:** React Navigation 6 (native performance)
-- **Animations:** Reanimated 3 (60fps animations)
-- **Lists:** FlashList (performance for large product catalogs)
+- **Navigation:** Expo Router (file-based routing, v5.1.4)
+- **Animations:** Reanimated 3 (expo-linear-gradient for gradients)
+- **Theme System:** Light/dark mode with ReRoom brand colors (#0066FF)
 
-**Key Native Libraries:**
+**Key Native Libraries (Current):**
 ```javascript
 // Camera & Media
-"react-native-vision-camera": "^3.8.0"
-"react-native-image-resizer": "^3.0.7"
+"expo-camera": "~16.1.11"
+"react-native-vision-camera": "^3.9.2" // Planned upgrade
+"@bam.tech/react-native-image-resizer": "^3.0.11"
 "@react-native-camera-roll/camera-roll": "^7.4.0"
+"expo-image-picker": "~16.1.4"
 
 // Storage & Performance
-"react-native-mmkv": "^2.11.0" // Fast storage
-"react-native-fast-image": "^8.6.3" // Optimized images
+"react-native-mmkv": "^2.12.2" // Fast storage
+"expo-image": "~2.4.0" // Optimized images
+"@react-native-async-storage/async-storage": "^2.1.2"
 
 // Payments & Analytics
 "react-native-purchases": "^7.17.0" // RevenueCat for subscriptions
 "@react-native-firebase/analytics": "^19.0.1"
+"@react-native-firebase/app": "^19.0.1"
+
+// Authentication & Backend
+"@clerk/clerk-expo": "^2.14.14"
+"@supabase/supabase-js": "^2.53.0"
 ```
 
 ### Backend Infrastructure
-**Microservices Architecture (Multi-Cloud)**
-- **API Gateway:** AWS API Gateway / Cloudflare
-- **Authentication:** Node.js + JWT with refresh token rotation
-- **Photo Upload:** Go + AWS S3 (optimized for performance)
-- **AI Processing:** Python + FastAPI + GPU clusters
-- **Product Matching:** Python + Vector databases (Pinecone/Weaviate)
-- **E-commerce API:** Node.js + Redis caching
-- **Analytics:** Go + ClickHouse for real-time analytics
+**Hybrid Architecture (Cloud + Legacy Microservices)**
+- **Cloud Backend (v2.0.0):** Railway hosted unified service
+  - **Database:** Supabase PostgreSQL
+  - **Storage:** Cloudflare R2 (S3-compatible)
+  - **Authentication:** Clerk integration
+  - **API:** Node.js 18+ + Express + TypeScript
+- **Legacy Services (Local Development):**
+  - **AI Processing:** Python + FastAPI + GPU clusters
+  - **Photo Service:** Node.js + Express + MinIO
+  - **Auth Service:** Node.js + Express (being migrated)
+- **Analytics:** Firebase Analytics + Crashlytics
 
 **Container Orchestration:**
 ```yaml
@@ -74,11 +86,11 @@
 
 ### Database Architecture
 **Multi-Database Strategy:**
-- **Primary:** PostgreSQL 15 (user data, transactions, product catalog)
-- **Vector:** Pinecone/Weaviate (product embeddings, visual search)
-- **Cache:** Redis Cluster (sessions, API responses, real-time features)
-- **Analytics:** ClickHouse (event tracking, business metrics)
-- **File Storage:** AWS S3 + CloudFront (global image CDN)
+- **Primary:** PostgreSQL (Supabase - cloud, local Docker for dev)
+- **Vector:** Qdrant (local dev), planned Pinecone/Weaviate (production)
+- **Cache:** Redis (local Docker, planned cloud Redis)
+- **Analytics:** Firebase Analytics (current), planned ClickHouse
+- **File Storage:** Cloudflare R2 (production), MinIO (local dev)
 
 **Schema Design:**
 ```sql
@@ -130,14 +142,16 @@ modomo/
 **Environment Configuration:**
 ```javascript
 // Development
-API_BASE_URL=http://localhost:3000
+EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
 AI_SERVICE_URL=http://localhost:8000
-WEBSOCKET_URL=ws://localhost:3001
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_key
+CLERK_PUBLISHABLE_KEY=your_clerk_key
 
 // Production
-API_BASE_URL=https://api.reroom.app
+EXPO_PUBLIC_API_BASE_URL=https://your-railway-app.railway.app
 AI_SERVICE_URL=https://ai.reroom.app
-WEBSOCKET_URL=wss://ws.reroom.app
+SUPABASE_URL=your_production_supabase_url
 ```
 
 ### CI/CD Pipeline
@@ -196,10 +210,11 @@ WEBSOCKET_URL=wss://ws.reroom.app
 
 ### Mobile Platform Constraints
 - **iOS:** Minimum iOS 14, optimized for iPhone 12+ screen sizes
-- **Android:** Minimum API 26 (Android 8.0), target latest
-- **Camera:** Requires rear camera, portrait mode support preferred
-- **Storage:** 500MB app size limit, 2GB local cache maximum
-- **Network:** Graceful degradation for slow/intermittent connections
+- **Android:** Minimum API 26 (Android 8.0), target API 34
+- **Camera:** expo-camera integration, react-native-vision-camera upgrade planned
+- **Storage:** EAS Build configured, 500MB app size limit
+- **Network:** Offline-first with MMKV storage and React Query
+- **Expo:** SDK 53 with EAS Build for app store distribution
 
 ### AI Processing Constraints
 - **Input Images:** 1-50MB, minimum 512x512px, JPEG/PNG only

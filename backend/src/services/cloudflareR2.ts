@@ -11,17 +11,40 @@ export interface UploadResult {
 
 export class CloudflareR2Service {
   private client: S3Client
-  private bucketUrl = process.env.CLOUDFLARE_R2_ENDPOINT!
-  private bucketName = process.env.CLOUDFLARE_R2_BUCKET!
-  private publicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL!
+  private bucketUrl: string
+  private bucketName: string
+  private publicUrl: string
 
   constructor() {
+    // Validate required environment variables
+    const requiredEnvVars = {
+      CLOUDFLARE_R2_ENDPOINT: process.env.CLOUDFLARE_R2_ENDPOINT,
+      CLOUDFLARE_R2_BUCKET: process.env.CLOUDFLARE_R2_BUCKET,
+      CLOUDFLARE_R2_PUBLIC_URL: process.env.CLOUDFLARE_R2_PUBLIC_URL,
+      CLOUDFLARE_R2_ACCESS_KEY_ID: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+    }
+
+    const missingVars = Object.entries(requiredEnvVars)
+      .filter(([_, value]) => !value)
+      .map(([key, _]) => key)
+
+    if (missingVars.length > 0) {
+      throw new Error(
+        `Missing required Cloudflare R2 environment variables: ${missingVars.join(', ')}`
+      )
+    }
+
+    this.bucketUrl = requiredEnvVars.CLOUDFLARE_R2_ENDPOINT!
+    this.bucketName = requiredEnvVars.CLOUDFLARE_R2_BUCKET!
+    this.publicUrl = requiredEnvVars.CLOUDFLARE_R2_PUBLIC_URL!
+
     this.client = new S3Client({
       region: 'auto',
       endpoint: this.bucketUrl,
       credentials: {
-        accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY!,
+        accessKeyId: requiredEnvVars.CLOUDFLARE_R2_ACCESS_KEY_ID!,
+        secretAccessKey: requiredEnvVars.CLOUDFLARE_R2_SECRET_ACCESS_KEY!,
       },
       forcePathStyle: true, // Required for R2 compatibility
     })
