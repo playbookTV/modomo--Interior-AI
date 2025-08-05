@@ -1,10 +1,12 @@
 import cv2
+import gc
 import numpy as np
 from typing import List, Dict, Tuple
 from ultralytics import YOLO
 import torch
 from PIL import Image
 import structlog
+import contextlib
 
 logger = structlog.get_logger()
 
@@ -38,15 +40,66 @@ class ObjectDetector:
         self.model_size = model_size
         self.model = None
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self._model_loaded = False
         logger.info(f"Object detector will use device: {self.device}")
+        
+    def _clear_gpu_memory(self):
+        """Clear GPU memory and run garbage collection"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        
+    @contextlib.contextmanager
+    def _gpu_memory_context(self):
+        """Context manager for GPU memory management during inference"""
+        try:
+            # Clear memory before inference
+            self._clear_gpu_memory()
+            yield
+        finally:
+            # Clear memory after inference
+            self._clear_gpu_memory()
+            
+    def unload_model(self):
+        """Unload model from memory to free up GPU/CPU resources"""
+        try:
+            if self.model is not None:
+                # Move model to CPU first to free GPU memory
+                if hasattr(self.model, 'to'):
+                    self.model.to('cpu')
+                del self.model
+                self.model = None
+                
+            self._model_loaded = False
+            self._clear_gpu_memory()
+            logger.info("YOLO model unloaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Error unloading YOLO model: {e}")
+            
+    def __del__(self):
+        """Cleanup on object destruction"""
+        self.unload_model()
         
     async def load_model(self):
         """Load YOLO model"""
+        if self._model_loaded:
+            logger.info("YOLO model already loaded")
+            return
+            
         try:
             logger.info(f"Loading YOLO model: {self.model_size}")
+            
+            # Clear any existing memory first
+            self._clear_gpu_memory()
+            
             self.model = YOLO(self.model_size)
             self.model.to(self.device)
+            
+            self._model_loaded = True
             logger.info("YOLO model loaded successfully")
+            
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
             raise
@@ -62,15 +115,17 @@ class ObjectDetector:
         Returns:
             List of DetectedObject instances
         """
-        if self.model is None:
+        if self.model is None or not self._model_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
             
-        try:
-            # Convert PIL to numpy array
-            img_array = np.array(image)
-            
-            # Run YOLO detection
-            results = self.model(img_array, conf=confidence_threshold, verbose=False)
+        with self._gpu_memory_context():
+            try:
+                # Convert PIL to numpy array
+                img_array = np.array(image)
+                
+                # Run YOLO detection with memory management
+                with torch.inference_mode():
+                    results = self.model(img_array, conf=confidence_threshold, verbose=False)
             
             detected_objects = []
             

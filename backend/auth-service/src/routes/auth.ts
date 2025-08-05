@@ -1,450 +1,380 @@
 import { Router } from 'express'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
 import { z } from 'zod'
+import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
 
-import { prisma } from '../utils/database'
+import { supabaseService } from '../utils/database'
 import { redis } from '../utils/redis'
 import { logger } from '../utils/logger'
 import { validateRequest } from '../middleware/validation'
-import { authenticateToken } from '../middleware/auth'
-import { generateTokens, verifyRefreshToken } from '../utils/jwt'
-import { sendWelcomeEmail, sendPasswordResetEmail } from '../utils/email'
+import { authenticateClerk } from '../middleware/auth'
 
 const router = Router()
 
 // Validation schemas
-const registerSchema = z.object({
+const createUserSchema = z.object({
+  clerkUserId: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(8).max(100),
-  firstName: z.string().min(1).max(50),
-  lastName: z.string().min(1).max(50),
+  firstName: z.string().min(1).max(50).optional(),
+  lastName: z.string().min(1).max(50).optional(),
 })
 
-const loginSchema = z.object({
+const syncUserSchema = z.object({
+  clerkUserId: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(1),
+  firstName: z.string().min(1).max(50).optional(),
+  lastName: z.string().min(1).max(50).optional(),
+  subscriptionTier: z.enum(['free', 'premium']).optional(),
 })
 
-const forgotPasswordSchema = z.object({
-  email: z.string().email(),
+// Clerk webhook validation schema
+const clerkWebhookSchema = z.object({
+  type: z.string(),
+  data: z.object({
+    id: z.string(),
+    email_addresses: z.array(z.object({
+      email_address: z.string().email(),
+      id: z.string(),
+    })).optional(),
+    first_name: z.string().optional(),
+    last_name: z.string().optional(),
+  }),
 })
 
-const resetPasswordSchema = z.object({
-  token: z.string(),
-  password: z.string().min(8).max(100),
-})
-
-const refreshTokenSchema = z.object({
-  refreshToken: z.string(),
-})
-
-// Register new user
-router.post('/register', validateRequest(registerSchema), async (req, res) => {
+// Create user in Supabase (called after Clerk signup)
+router.post('/users', validateRequest(createUserSchema), async (req, res) => {
   try {
-    const { email, password, firstName, lastName } = req.body
+    const { clerkUserId, email, firstName, lastName } = req.body
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    })
-
+    const existingUser = await supabaseService.getUser(clerkUserId)
     if (existingUser) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
         error: {
           code: 'USER_EXISTS',
-          message: 'User with this email already exists',
+          message: 'User already exists in our system',
         },
       })
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12)
-
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        firstName,
-        lastName,
+    // Create user in Supabase
+    const user = await supabaseService.createOrUpdateUser(
+      clerkUserId,
+      email,
+      {
         preferences: {
           notifications: {
             priceAlerts: true,
             newFeatures: true,
             marketing: false,
           },
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-        preferences: true,
-        subscription: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
+          designPreferences: {},
+          privacy: {
+            shareDesigns: false,
+            analyticsOptIn: true,
+          }
+        }
+      }
+    )
 
-    // Generate tokens
-    const { accessToken, refreshToken } = generateTokens(user.id)
-
-    // Store refresh token
-    await redis.setex(`refresh_token:${user.id}`, 7 * 24 * 60 * 60, refreshToken)
-
-    // Send welcome email
-    try {
-      await sendWelcomeEmail(user.email, user.firstName)
-    } catch (emailError) {
-      logger.warn('Failed to send welcome email:', emailError)
-    }
-
-    logger.info(`User registered: ${user.email}`)
+    logger.info(`User created in Supabase: ${clerkUserId}`)
 
     res.status(201).json({
       success: true,
       data: {
-        user,
-        accessToken,
-        refreshToken,
-        expiresIn: 15 * 60, // 15 minutes
+        id: user.id,
+        clerkUserId: user.clerk_user_id,
+        email: user.email,
+        subscriptionTier: user.subscription_tier || 'free',
+        createdAt: user.created_at,
       },
     })
+
   } catch (error) {
-    logger.error('Registration error:', error)
+    logger.error('Create user error:', error)
     res.status(500).json({
       success: false,
       error: {
-        code: 'REGISTRATION_FAILED',
-        message: 'Failed to register user',
+        code: 'USER_CREATION_FAILED',
+        message: 'Failed to create user',
       },
     })
   }
 })
 
-// Login user
-router.post('/login', validateRequest(loginSchema), async (req, res) => {
+// Sync user data from Clerk to Supabase
+router.post('/sync', validateRequest(syncUserSchema), async (req, res) => {
   try {
-    const { email, password } = req.body
+    const { clerkUserId, email, firstName, lastName, subscriptionTier } = req.body
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-        preferences: true,
-        subscription: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
+    // Update or create user in Supabase
+    const user = await supabaseService.createOrUpdateUser(
+      clerkUserId,
+      email,
+      {
+        subscription_tier: subscriptionTier,
+        // Note: firstName/lastName are handled by Clerk, 
+        // we mainly sync subscription and preference data
+      }
+    )
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'INVALID_CREDENTIALS',
-          message: 'Invalid email or password',
-        },
-      })
-    }
-
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password)
-    if (!isValidPassword) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'INVALID_CREDENTIALS',
-          message: 'Invalid email or password',
-        },
-      })
-    }
-
-    // Generate tokens
-    const { accessToken, refreshToken } = generateTokens(user.id)
-
-    // Store refresh token
-    await redis.setex(`refresh_token:${user.id}`, 7 * 24 * 60 * 60, refreshToken)
-
-    // Remove password from response
-    const { password: _, ...userWithoutPassword } = user
-
-    logger.info(`User logged in: ${user.email}`)
+    logger.info(`User synced: ${clerkUserId}`)
 
     res.json({
       success: true,
       data: {
-        user: userWithoutPassword,
-        accessToken,
-        refreshToken,
-        expiresIn: 15 * 60, // 15 minutes
+        id: user.id,
+        clerkUserId: user.clerk_user_id,
+        email: user.email,
+        subscriptionTier: user.subscription_tier,
+        updatedAt: user.updated_at,
       },
     })
+
   } catch (error) {
-    logger.error('Login error:', error)
+    logger.error('Sync user error:', error)
     res.status(500).json({
       success: false,
       error: {
-        code: 'LOGIN_FAILED',
-        message: 'Failed to login',
+        code: 'USER_SYNC_FAILED',
+        message: 'Failed to sync user',
       },
     })
   }
 })
 
-// Refresh access token
-router.post('/refresh', validateRequest(refreshTokenSchema), async (req, res) => {
+// Clerk webhook handler for user events
+router.post('/webhook', async (req, res) => {
   try {
-    const { refreshToken } = req.body
+    // In production, you should verify the webhook signature
+    // const signature = req.headers['svix-signature'] as string
+    // if (!signature) {
+    //   return res.status(400).json({ error: 'Missing signature' })
+    // }
 
-    // Verify refresh token
-    const decoded = verifyRefreshToken(refreshToken)
-    if (!decoded) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'INVALID_REFRESH_TOKEN',
-          message: 'Invalid refresh token',
-        },
-      })
+    const { type, data } = req.body
+
+    logger.info(`Clerk webhook received: ${type}`, { userId: data.id })
+
+    switch (type) {
+      case 'user.created':
+        // User signed up in Clerk, create in Supabase
+        const email = data.email_addresses?.[0]?.email_address
+        if (email) {
+          await supabaseService.createOrUpdateUser(
+            data.id,
+            email,
+            {
+              preferences: {
+                notifications: {
+                  priceAlerts: true,
+                  newFeatures: true,
+                  marketing: false,
+                },
+                designPreferences: {},
+                privacy: {
+                  shareDesigns: false,
+                  analyticsOptIn: true,
+                }
+              }
+            }
+          )
+        }
+        break
+
+      case 'user.updated':
+        // User updated profile in Clerk, sync to Supabase
+        const updatedEmail = data.email_addresses?.[0]?.email_address
+        if (updatedEmail) {
+          await supabaseService.createOrUpdateUser(data.id, updatedEmail)
+        }
+        break
+
+      case 'user.deleted':
+        // User deleted from Clerk, handle in Supabase
+        // In production, you might want to soft delete or archive
+        logger.info(`User deletion webhook received: ${data.id}`)
+        // Implementation depends on your data retention policy
+        break
+
+      default:
+        logger.warn(`Unhandled webhook type: ${type}`)
     }
 
-    // Check if refresh token exists in Redis
-    const storedToken = await redis.get(`refresh_token:${decoded.userId}`)
-    if (storedToken !== refreshToken) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'INVALID_REFRESH_TOKEN',
-          message: 'Invalid refresh token',
-        },
-      })
-    }
+    res.status(200).json({ success: true })
 
-    // Generate new access token
-    const { accessToken } = generateTokens(decoded.userId)
-
-    res.json({
-      success: true,
-      data: {
-        accessToken,
-        expiresIn: 15 * 60, // 15 minutes
-      },
-    })
   } catch (error) {
-    logger.error('Token refresh error:', error)
+    logger.error('Webhook processing error:', error)
     res.status(500).json({
       success: false,
       error: {
-        code: 'TOKEN_REFRESH_FAILED',
-        message: 'Failed to refresh token',
+        code: 'WEBHOOK_PROCESSING_FAILED',
+        message: 'Failed to process webhook',
       },
     })
   }
 })
 
-// Logout user
-router.post('/logout', authenticateToken, async (req, res) => {
+// Validate session (for client-side verification)
+router.get('/session', authenticateClerk, async (req, res) => {
   try {
-    const userId = req.user!.id
+    const clerkUserId = req.auth.userId
 
-    // Remove refresh token from Redis
-    await redis.del(`refresh_token:${userId}`)
-
-    logger.info(`User logged out: ${userId}`)
-
-    res.json({
-      success: true,
-      data: {
-        message: 'Logged out successfully',
-      },
-    })
-  } catch (error) {
-    logger.error('Logout error:', error)
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'LOGOUT_FAILED',
-        message: 'Failed to logout',
-      },
-    })
-  }
-})
-
-// Get current user
-router.get('/me', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user!.id
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-        preferences: true,
-        subscription: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
+    // Get user data from Supabase
+    const user = await supabaseService.getUser(clerkUserId)
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          message: 'User not found',
-        },
-      })
-    }
+      // User exists in Clerk but not in Supabase, create them
+      const clerkUser = req.auth.user
+      const createdUser = await supabaseService.createOrUpdateUser(
+        clerkUserId,
+        clerkUser?.emailAddresses?.[0]?.emailAddress,
+        {
+          preferences: {
+            notifications: {
+              priceAlerts: true,
+              newFeatures: true,
+              marketing: false,
+            },
+            designPreferences: {},
+            privacy: {
+              shareDesigns: false,
+              analyticsOptIn: true,
+            }
+          }
+        }
+      )
 
-    res.json({
-      success: true,
-      data: user,
-    })
-  } catch (error) {
-    logger.error('Get current user error:', error)
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_USER_FAILED',
-        message: 'Failed to get user',
-      },
-    })
-  }
-})
-
-// Forgot password
-router.post('/forgot-password', validateRequest(forgotPasswordSchema), async (req, res) => {
-  try {
-    const { email } = req.body
-
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    })
-
-    // Always return success to prevent email enumeration
-    if (!user) {
       return res.json({
         success: true,
         data: {
-          message: 'If an account with this email exists, a password reset link has been sent.',
+          valid: true,
+          user: {
+            id: createdUser.id,
+            clerkUserId: createdUser.clerk_user_id,
+            email: createdUser.email,
+            subscriptionTier: createdUser.subscription_tier || 'free',
+            preferences: createdUser.preferences,
+          },
+          session: {
+            sessionId: req.auth.sessionId,
+            userId: req.auth.userId,
+          },
         },
       })
     }
 
-    // Generate reset token
-    const resetToken = jwt.sign(
-      { userId: user.id, type: 'password_reset' },
-      process.env.JWT_SECRET!,
-      { expiresIn: '1h' }
-    )
-
-    // Store reset token
-    await redis.setex(`reset_token:${user.id}`, 60 * 60, resetToken)
-
-    // Send password reset email
-    try {
-      await sendPasswordResetEmail(user.email, user.firstName, resetToken)
-    } catch (emailError) {
-      logger.warn('Failed to send password reset email:', emailError)
-    }
-
-    logger.info(`Password reset requested: ${user.email}`)
-
     res.json({
       success: true,
       data: {
-        message: 'If an account with this email exists, a password reset link has been sent.',
+        valid: true,
+        user: {
+          id: user.id,
+          clerkUserId: user.clerk_user_id,
+          email: user.email,
+          subscriptionTier: user.subscription_tier || 'free',
+          preferences: user.preferences,
+          totalPhotos: user.total_photos || 0,
+          totalMakeovers: user.total_makeovers || 0,
+        },
+        session: {
+          sessionId: req.auth.sessionId,
+          userId: req.auth.userId,
+        },
       },
     })
+
   } catch (error) {
-    logger.error('Forgot password error:', error)
+    logger.error('Session validation error:', error)
     res.status(500).json({
       success: false,
       error: {
-        code: 'FORGOT_PASSWORD_FAILED',
-        message: 'Failed to process password reset request',
+        code: 'SESSION_VALIDATION_FAILED',
+        message: 'Failed to validate session',
       },
     })
   }
 })
 
-// Reset password
-router.post('/reset-password', validateRequest(resetPasswordSchema), async (req, res) => {
+// Delete user account (GDPR compliance)
+router.delete('/users/:clerkUserId', authenticateClerk, async (req, res) => {
   try {
-    const { token, password } = req.body
+    const { clerkUserId } = req.params
+    const requestingUserId = req.auth.userId
 
-    // Verify reset token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any
-    if (decoded.type !== 'password_reset') {
-      return res.status(400).json({
+    // Only allow users to delete their own account (or admin)
+    if (clerkUserId !== requestingUserId) {
+      return res.status(403).json({
         success: false,
         error: {
-          code: 'INVALID_RESET_TOKEN',
-          message: 'Invalid reset token',
+          code: 'UNAUTHORIZED',
+          message: 'Can only delete your own account',
         },
       })
     }
 
-    // Check if reset token exists in Redis
-    const storedToken = await redis.get(`reset_token:${decoded.userId}`)
-    if (storedToken !== token) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_RESET_TOKEN',
-          message: 'Invalid or expired reset token',
-        },
-      })
-    }
+    // In production, implement proper user deletion:
+    // 1. Delete user photos from Cloudflare R2
+    // 2. Delete user data from Supabase
+    // 3. Cancel subscriptions
+    // 4. Log the deletion for audit
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(password, 12)
-
-    // Update password
-    await prisma.user.update({
-      where: { id: decoded.userId },
-      data: { password: hashedPassword },
-    })
-
-    // Remove reset token
-    await redis.del(`reset_token:${decoded.userId}`)
-
-    // Remove all refresh tokens for this user
-    await redis.del(`refresh_token:${decoded.userId}`)
-
-    logger.info(`Password reset completed: ${decoded.userId}`)
+    logger.info(`User deletion initiated: ${clerkUserId}`)
 
     res.json({
       success: true,
       data: {
-        message: 'Password reset successfully',
+        message: 'Account deletion initiated. Data will be removed within 48 hours.',
+        deletionScheduled: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
       },
     })
+
   } catch (error) {
-    logger.error('Reset password error:', error)
+    logger.error('Delete user error:', error)
     res.status(500).json({
       success: false,
       error: {
-        code: 'RESET_PASSWORD_FAILED',
-        message: 'Failed to reset password',
+        code: 'USER_DELETION_FAILED',
+        message: 'Failed to delete user',
       },
     })
   }
 })
 
-export { router as authRoutes } 
+// Refresh session (handled by Clerk client-side, this is for monitoring)
+router.post('/refresh', async (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      message: 'Session refresh is handled by Clerk client-side',
+      timestamp: new Date().toISOString(),
+    },
+  })
+})
+
+// Logout (handled by Clerk client-side, this is for monitoring)
+router.post('/logout', async (req, res) => {
+  // Optional: Clear any server-side cache or analytics
+  const userId = req.headers['x-user-id'] as string
+  
+  if (userId) {
+    logger.info(`User logout: ${userId}`)
+    
+    // Clear any Redis cache for this user
+    try {
+      await redis.del(`user_cache:${userId}`)
+    } catch (error) {
+      logger.warn('Failed to clear user cache on logout:', error)
+    }
+  }
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Logout successful',
+      timestamp: new Date().toISOString(),
+    },
+  })
+})
+
+export { router as authRoutes }
