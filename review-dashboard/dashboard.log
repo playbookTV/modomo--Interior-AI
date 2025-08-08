@@ -1,31 +1,29 @@
 
-> modomo-review-dashboard@1.0.0 dev
+> modomo-review-dashboard@1.0.0 dev /Users/leslieisah/modomo/review-dashboard
 > vite
 
 
-  VITE v4.5.14  ready in 1437 ms
+  VITE v4.5.14  ready in 573 ms
 
   ➜  Local:   http://localhost:3001/
   ➜  Network: http://192.168.4.22:3001/
-Failed to resolve import "react-router-dom" from "src/App.tsx". Does the file exist?
-Failed to resolve import "react-router-dom" from "src/components/Navbar.tsx". Does the file exist?
-Failed to resolve import "react-query" from "src/pages/Dashboard.tsx". Does the file exist?
-Failed to resolve import "react-query" from "src/pages/DatasetExport.tsx". Does the file exist?
-Failed to resolve import "react-query" from "src/pages/ReviewQueue.tsx". Does the file exist?
-Failed to resolve import "react-router-dom" from "src/pages/SceneDetail.tsx". Does the file exist?
-Failed to resolve import "react-query" from "src/pages/Analytics.tsx". Does the file exist?
-9:11:33 AM [vite] ✨ new dependencies optimized: react-dom/client, lucide-react, axios
-9:11:33 AM [vite] ✨ optimized dependencies changed. reloading
-9:19:10 AM [vite] ✨ new dependencies optimized: react-router-dom, react-query
-9:19:10 AM [vite] ✨ optimized dependencies changed. reloading
-(node:78392) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
-(Use `node --trace-deprecation ...` to show where the warning was created)
-9:21:46 AM [vite] hmr update /src/App.tsx
-9:21:52 AM [vite] hmr update /src/pages/Dashboard.tsx
-9:21:56 AM [vite] hmr update /src/pages/ReviewQueue.tsx
-9:22:10 AM [vite] hmr update /src/pages/DatasetExport.tsx
-9:22:17 AM [vite] hmr update /src/pages/Analytics.tsx
-9:22:31 AM [vite] ✨ new dependencies optimized: @tanstack/react-query
-9:22:31 AM [vite] ✨ optimized dependencies changed. reloading
-9:25:37 AM [vite] hmr update /src/pages/Dashboard.tsx
-9:25:46 AM [vite] hmr update /src/pages/ReviewQueue.tsx
+1:32:55 PM [vite] vite.config.ts changed, restarting server...
+1:32:56 PM [vite] server restarted.
+1:50:22 PM [vite] hmr update /src/index.css
+1:50:52 PM [vite] hmr update /src/components/StatCard.tsx
+1:51:19 PM [vite] hmr update /src/components/Navbar.tsx
+1:51:34 PM [vite] hmr update /src/pages/Dashboard.tsx
+1:51:59 PM [vite] hmr update /src/pages/Dashboard.tsx
+1:52:22 PM [vite] hmr update /src/pages/Dashboard.tsx
+2:00:40 PM [vite] hmr update /src/pages/ReviewQueue.tsx
+2:01:10 PM [vite] hmr update /src/pages/ReviewQueue.tsx
+3:10:00 PM [vite] hmr update /src/pages/SceneDetail.tsx
+4:35:09 PM [vite] hmr update /src/pages/SceneDetail.tsx
+4:39:27 PM [vite] hmr update /src/pages/DatasetExport.tsx
+4:40:10 PM [vite] hmr update /src/pages/SceneDetail.tsx
+4:40:30 PM [vite] page reload src/main.tsx
+4:40:44 PM [vite] page reload dist/index.html
+4:40:51 PM [vite] hmr update /src/pages/SceneDetail.tsx
+4:40:51 PM [vite] hmr update /src/pages/DatasetExport.tsx
+4:40:51 PM [vite] page reload src/main.tsx
+4:55:39 PM [vite] hmr update /src/index.css

@@ -20,7 +20,15 @@ export const ProfileScreen = () => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text variant="h1">Profile</Text>
+        <View style={styles.profileInfo}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>👤</Text>
+          </View>
+          <Text variant="h1">Profile</Text>
+          <Text variant="bodyMedium" color="secondary">
+            Manage your ReRoom experience
+          </Text>
+        </View>
       </View>
 
       <Card variant="elevated" style={styles.statsCard}>
@@ -121,6 +129,25 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 40,
     marginBottom: 24,
+  },
+
+  profileInfo: {
+    alignItems: 'center',
+  },
+
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Colors.primary.blue,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  avatarText: {
+    fontSize: 24,
+    color: Colors.primary.white,
   },
 
   statsCard: {

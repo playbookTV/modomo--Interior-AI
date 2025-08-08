@@ -4,7 +4,7 @@ import React, { useRef, useState, useEffect } from 'react'
 import { View, StyleSheet, Alert } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { Camera, useCameraDevices } from 'react-native-vision-camera'
+import { Camera, useCameraDevice } from 'react-native-vision-camera'
 
 import { Button, Text } from '../components/ui'
 import { Colors } from '../theme/colors'
@@ -16,8 +16,7 @@ type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>
 export const CameraScreen = () => {
   const navigation = useNavigation<CameraScreenNavigationProp>()
   const camera = useRef<Camera>(null)
-  const devices = useCameraDevices()
-  const device = devices.find(d => d.position === 'back')
+  const device = useCameraDevice('back')
   
   const [isCapturing, setIsCapturing] = useState(false)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)

@@ -16,6 +16,14 @@ from pydantic import BaseModel, Field
 import asyncpg
 import redis
 
+# Import Houzz crawler
+try:
+    from crawlers.houzz_crawler import HouzzCrawler
+    CRAWLER_AVAILABLE = True
+except ImportError:
+    CRAWLER_AVAILABLE = False
+    print("⚠️ Houzz crawler not available - scraping will use dummy data")
+
 # Dummy AI classes for basic testing
 class DummyDetector:
     async def detect_objects(self, image_path: str, taxonomy: dict) -> List[dict]:
@@ -148,31 +156,39 @@ async def test_detection():
         "note": "This is a dummy detection. Install AI packages for real detection."
     }
 
-# Scraping endpoints (basic)
+# Scraping endpoints (real implementation)
 @app.post("/scrape/scenes")
 async def start_scene_scraping(
+    background_tasks: BackgroundTasks,
     limit: int = Query(10, description="Number of scenes to scrape"),
     room_types: List[str] = Query(None, description="Filter by room types")
 ):
-    """Start scraping scenes (basic version)"""
+    """Start scraping scenes from Houzz UK"""
     job_id = str(uuid.uuid4())
     
-    # Store job status
+    # Store initial job status
     if redis_client:
         try:
             redis_client.set(f"job:{job_id}", json.dumps({
-                "status": "completed",
-                "progress": 100,
+                "status": "running",
+                "progress": 0,
+                "total_items": limit,
+                "processed_items": 0,
                 "scenes_count": 0,
-                "note": "Basic mode - no actual scraping performed"
-            }))
+                "started_at": datetime.utcnow().isoformat(),
+                "room_types": room_types or ["all"]
+            }), ex=3600)  # Expire after 1 hour
         except:
             pass
     
+    # Start background scraping task
+    background_tasks.add_task(run_houzz_scraping, job_id, limit, room_types)
+    
     return {
         "job_id": job_id, 
-        "status": "completed",
-        "note": "Basic mode active. Install scrapy/playwright for real scraping."
+        "status": "running",
+        "message": f"Started scraping {limit} scenes from Houzz UK",
+        "room_types": room_types or ["all"]
     }
 
 @app.get("/scrape/scenes/{job_id}/status")
@@ -242,6 +258,188 @@ async def get_active_jobs():
         "export_jobs": [],
         "note": "No active jobs in basic mode"
     }
+
+# Background scraping task
+async def run_houzz_scraping(job_id: str, limit: int, room_types: Optional[List[str]]):
+    """Background task to scrape scenes from Houzz"""
+    try:
+        if not CRAWLER_AVAILABLE:
+            # Update job with error
+            if redis_client:
+                try:
+                    redis_client.set(f"job:{job_id}", json.dumps({
+                        "status": "failed",
+                        "progress": 0,
+                        "error": "Houzz crawler dependencies not available",
+                        "completed_at": datetime.utcnow().isoformat()
+                    }), ex=3600)
+                except:
+                    pass
+            return
+        
+        print(f"🕷️ Starting Houzz scraping job {job_id} - {limit} scenes")
+        
+        # Initialize crawler
+        crawler = HouzzCrawler()
+        
+        # Update job status - starting
+        if redis_client:
+            try:
+                redis_client.set(f"job:{job_id}", json.dumps({
+                    "status": "running",
+                    "progress": 10,
+                    "total_items": limit,
+                    "processed_items": 0,
+                    "scenes_count": 0,
+                    "message": "Initializing crawler...",
+                    "updated_at": datetime.utcnow().isoformat()
+                }), ex=3600)
+            except:
+                pass
+        
+        # Start scraping
+        scenes = await crawler.scrape_scenes(limit=limit, room_types=room_types)
+        
+        # Update progress
+        if redis_client:
+            try:
+                redis_client.set(f"job:{job_id}", json.dumps({
+                    "status": "running",
+                    "progress": 50,
+                    "total_items": limit,
+                    "processed_items": len(scenes),
+                    "scenes_count": len(scenes),
+                    "message": f"Scraped {len(scenes)} scenes, saving to database...",
+                    "updated_at": datetime.utcnow().isoformat()
+                }), ex=3600)
+            except:
+                pass
+        
+        # Save scenes to database
+        saved_count = 0
+        if db_pool and scenes:
+            try:
+                async with db_pool.acquire() as conn:
+                    for scene in scenes:
+                        try:
+                            await conn.execute("""
+                                INSERT INTO scenes (houzz_id, image_url, room_type, style_tags, color_tags, project_url, status)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'scraped')
+                                ON CONFLICT (houzz_id) DO NOTHING
+                            """, scene.houzz_id, scene.image_url, scene.room_type, 
+                            scene.style_tags, scene.color_tags, scene.project_url)
+                            saved_count += 1
+                        except Exception as e:
+                            print(f"Failed to save scene {scene.houzz_id}: {e}")
+                            continue
+            except Exception as e:
+                print(f"Database error during scene saving: {e}")
+        
+        # Final job update - completed
+        final_status = {
+            "status": "completed",
+            "progress": 100,
+            "total_items": limit,
+            "processed_items": len(scenes),
+            "scenes_count": len(scenes),
+            "saved_count": saved_count,
+            "message": f"Successfully scraped and saved {saved_count} scenes from Houzz UK",
+            "completed_at": datetime.utcnow().isoformat()
+        }
+        
+        if redis_client:
+            try:
+                redis_client.set(f"job:{job_id}", json.dumps(final_status), ex=3600)
+            except:
+                pass
+        
+        # Clean up crawler
+        await crawler.close()
+        
+        print(f"✅ Houzz scraping job {job_id} completed: {saved_count}/{len(scenes)} scenes saved")
+        
+    except Exception as e:
+        print(f"❌ Houzz scraping job {job_id} failed: {e}")
+        
+        # Update job with failure status
+        if redis_client:
+            try:
+                redis_client.set(f"job:{job_id}", json.dumps({
+                    "status": "failed",
+                    "progress": 0,
+                    "error": str(e),
+                    "completed_at": datetime.utcnow().isoformat()
+                }), ex=3600)
+            except:
+                pass
+
+# Add new endpoint to get scraped scenes
+@app.get("/scenes")
+async def get_scenes(
+    limit: int = Query(20, description="Number of scenes to return"),
+    room_type: Optional[str] = Query(None, description="Filter by room type"),
+    status: Optional[str] = Query(None, description="Filter by status")
+):
+    """Get scraped scenes from database"""
+    if not db_pool:
+        return {"scenes": [], "note": "Database not available"}
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Build query with filters
+            where_clauses = []
+            params = []
+            param_count = 0
+            
+            if room_type:
+                param_count += 1
+                where_clauses.append(f"room_type = ${param_count}")
+                params.append(room_type)
+            
+            if status:
+                param_count += 1
+                where_clauses.append(f"status = ${param_count}")
+                params.append(status)
+            
+            where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            
+            param_count += 1
+            query = f"""
+                SELECT scene_id, houzz_id, image_url, room_type, style_tags, color_tags, 
+                       project_url, status, created_at, updated_at
+                FROM scenes 
+                {where_sql}
+                ORDER BY created_at DESC 
+                LIMIT ${param_count}
+            """
+            params.append(limit)
+            
+            rows = await conn.fetch(query, *params)
+            
+            scenes = []
+            for row in rows:
+                scenes.append({
+                    "scene_id": str(row['scene_id']),
+                    "houzz_id": row['houzz_id'],
+                    "image_url": row['image_url'],
+                    "room_type": row['room_type'],
+                    "style_tags": row['style_tags'],
+                    "color_tags": row['color_tags'],
+                    "project_url": row['project_url'],
+                    "status": row['status'],
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                    "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
+                })
+            
+            return {
+                "scenes": scenes,
+                "count": len(scenes),
+                "filters": {"room_type": room_type, "status": status}
+            }
+            
+    except Exception as e:
+        print(f"Failed to fetch scenes: {e}")
+        return {"error": str(e), "scenes": []}
 
 if __name__ == "__main__":
     try:

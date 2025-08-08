@@ -44,11 +44,12 @@ export const GalleryScreen = () => {
 
       {savedRooms.length === 0 ? (
         <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>🎨</Text>
           <Text variant="h3" color="secondary" align="center">
             No designs yet
           </Text>
           <Text variant="bodyMedium" color="secondary" align="center" style={styles.emptyText}>
-            Start by capturing a photo of your room and creating your first AI design
+            Start by capturing a photo of your room and creating your first AI design transformation
           </Text>
         </View>
       ) : (
@@ -107,8 +108,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
 
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+
   emptyText: {
     marginTop: 12,
     textAlign: 'center',
+    lineHeight: 22,
   },
 })

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getReviewQueue } from '../api/client'
+import { Link } from 'react-router-dom'
 
 export function ReviewQueue() {
   const { data: scenes, isLoading } = useQuery({
@@ -50,9 +51,9 @@ export function ReviewQueue() {
                     Objects: {scene.objects?.length || 0} detected
                   </p>
                   <div className="mt-2">
-                    <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <Link to={`/scene/${scene.scene_id}`} className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                       Start Review
-                    </button>
+                    </Link>
                   </div>
                 </div>
               </div>

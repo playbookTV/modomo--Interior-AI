@@ -9,10 +9,16 @@ export function DatasetExport() {
     test: 0.1
   })
 
-  const exportMutation = useMutation(startDatasetExport)
+  const exportMutation = useMutation({
+    mutationFn: startDatasetExport
+  })
 
   const handleExport = () => {
-    exportMutation.mutate(splitRatios)
+    exportMutation.mutate({
+      train_ratio: splitRatios.train,
+      val_ratio: splitRatios.val,
+      test_ratio: splitRatios.test,
+    })
   }
 
   return (
@@ -74,10 +80,10 @@ export function DatasetExport() {
           <div className="pt-4">
             <button
               onClick={handleExport}
-              disabled={exportMutation.isLoading}
+              disabled={exportMutation.isPending}
               className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
-              {exportMutation.isLoading ? 'Exporting...' : 'Start Export'}
+              {exportMutation.isPending ? 'Exporting...' : 'Start Export'}
             </button>
           </div>
           

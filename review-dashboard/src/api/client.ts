@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { Scene, DetectedObject, Product, ProductSimilarity, ScrapingJob, DatasetExportJob, DatasetStats, CategoryStats, ReviewUpdate } from '../types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://ovalay-recruitment-production.up.railway.app' || '/api'
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

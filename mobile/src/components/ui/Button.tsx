@@ -79,11 +79,16 @@ export const Button: React.FC<ButtonProps> = ({
 const styles = StyleSheet.create({
   // Base styles
   base: {
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
+    shadowColor: Colors.primary.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   
   fullWidth: {

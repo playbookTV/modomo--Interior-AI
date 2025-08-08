@@ -6,8 +6,14 @@ import { CategoryChart } from '../components/CategoryChart'
 import { BarChart3, Package, CheckCircle, TrendingUp } from 'lucide-react'
 
 export function Analytics() {
-  const { data: stats, isLoading: statsLoading } = useQuery('dataset-stats', getDatasetStats)
-  const { data: categoryStats } = useQuery('category-stats', getCategoryStats)
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['dataset-stats'],
+    queryFn: getDatasetStats
+  })
+  const { data: categoryStats } = useQuery({
+    queryKey: ['category-stats'],
+    queryFn: getCategoryStats
+  })
 
   if (statsLoading) {
     return (

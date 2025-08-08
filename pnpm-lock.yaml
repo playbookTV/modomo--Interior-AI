@@ -367,82 +367,6 @@ importers:
         specifier: ~5.8.3
         version: 5.8.3
 
-  review-dashboard:
-    dependencies:
-      '@tanstack/react-query':
-        specifier: ^5.84.1
-        version: 5.84.1(react@18.3.1)
-      autoprefixer:
-        specifier: ^10.4.16
-        version: 10.4.21(postcss@8.4.49)
-      axios:
-        specifier: ^1.6.2
-        version: 1.11.0
-      canvas-confetti:
-        specifier: ^1.9.2
-        version: 1.9.3
-      clsx:
-        specifier: ^2.0.0
-        version: 2.1.1
-      lucide-react:
-        specifier: ^0.294.0
-        version: 0.294.0(react@18.3.1)
-      postcss:
-        specifier: ^8.4.32
-        version: 8.4.49
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      react-hotkeys-hook:
-        specifier: ^4.4.1
-        version: 4.6.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-router-dom:
-        specifier: ^6.30.1
-        version: 6.30.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-window:
-        specifier: ^1.8.8
-        version: 1.8.11(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      tailwindcss:
-        specifier: ^3.3.6
-        version: 3.4.17(ts-node@10.9.2(@types/node@20.19.9)(typescript@5.9.2))
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.23
-        version: 18.3.23
-      '@types/react-dom':
-        specifier: ^18.3.7
-        version: 18.3.7(@types/react@18.3.23)
-      '@types/react-window':
-        specifier: ^1.8.8
-        version: 1.8.8
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^6.12.0
-        version: 6.21.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1)(typescript@5.9.2)
-      '@typescript-eslint/parser':
-        specifier: ^6.12.0
-        version: 6.21.0(eslint@8.57.1)(typescript@5.9.2)
-      '@vitejs/plugin-react':
-        specifier: ^4.1.1
-        version: 4.7.0(vite@4.5.14(@types/node@20.19.9)(lightningcss@1.27.0)(terser@5.43.1))
-      eslint:
-        specifier: ^8.54.0
-        version: 8.57.1
-      eslint-plugin-react-hooks:
-        specifier: ^4.6.0
-        version: 4.6.2(eslint@8.57.1)
-      eslint-plugin-react-refresh:
-        specifier: ^0.4.4
-        version: 0.4.20(eslint@8.57.1)
-      typescript:
-        specifier: ^5.2.2
-        version: 5.9.2
-      vite:
-        specifier: ^4.5.0
-        version: 4.5.14(@types/node@20.19.9)(lightningcss@1.27.0)(terser@5.43.1)
-
 packages:
 
   '@0no-co/graphql.web@1.2.0':
@@ -1601,10 +1525,6 @@ packages:
     peerDependencies:
       '@redis/client': ^1.0.0
 
-  '@remix-run/router@1.23.0':
-    resolution: {integrity: sha512-O3rHJzAQKamUz1fvE0Qaw0xSFqsA/yafi2iqeE0pvdFtCO1viYx8QL6f3Ln/aCCTLxs68SLf0KPM9eSeM8yBnA==}
-    engines: {node: '>=14.0.0'}
-
   '@rolldown/pluginutils@1.0.0-beta.27':
     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
 
@@ -1782,9 +1702,6 @@ packages:
     resolution: {integrity: sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==}
     peerDependencies:
       '@types/react': ^18.0.0
-
-  '@types/react-window@1.8.8':
-    resolution: {integrity: sha512-8Ls660bHR1AUA2kuRvVG9D/4XpRC6wjAaPT9dil7Ckc76eP9TKWZwwmgfq8Q1LANX3QNDnoU4Zp48A3w+zK69Q==}
 
   '@types/react@18.3.23':
     resolution: {integrity: sha512-/LDXMQh55EzZQ0uVAZmKKhfENivEvWz6E+EYzh+/MCjMhNsotd+ZHhBGIjFDTi6+fz0OhQQQLbTgdQIxxCsC0w==}
@@ -2242,9 +2159,6 @@ packages:
   caniuse-lite@1.0.30001731:
     resolution: {integrity: sha512-lDdp2/wrOmTRWuoB5DpfNkC0rJDU8DqRa6nYL6HK6sytw70QMopt/NIc/9SM7ylItlBWfACXk0tEn37UWM/+mg==}
 
-  canvas-confetti@1.9.3:
-    resolution: {integrity: sha512-rFfTURMvmVEX1gyXFgn5QMn81bYk70qa0HLzcIOSVEyl57n6o9ItHeBtUSWdvKAPY0xlvBHno4/v3QPrT83q9g==}
-
   chalk@2.4.2:
     resolution: {integrity: sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==}
     engines: {node: '>=4'}
@@ -2317,10 +2231,6 @@ packages:
   clone@1.0.4:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
-
-  clsx@2.1.1:
-    resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
-    engines: {node: '>=6'}
 
   cluster-key-slot@1.1.2:
     resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
@@ -4469,12 +4379,6 @@ packages:
     peerDependencies:
       react: '>=17.0.0'
 
-  react-hotkeys-hook@4.6.2:
-    resolution: {integrity: sha512-FmP+ZriY3EG59Ug/lxNfrObCnW9xQShgk7Nb83+CkpfkcCpfS95ydv+E9JuXA5cp8KtskU7LGlIARpkc92X22Q==}
-    peerDependencies:
-      react: '>=16.8.1'
-      react-dom: '>=16.8.1'
-
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
 
@@ -4587,26 +4491,6 @@ packages:
   react-refresh@0.17.0:
     resolution: {integrity: sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==}
     engines: {node: '>=0.10.0'}
-
-  react-router-dom@6.30.1:
-    resolution: {integrity: sha512-llKsgOkZdbPU1Eg3zK8lCn+sjD9wMRZZPuzmdWWX5SUs8OFkN5HnFVC0u5KMeMaC9aoancFI/KoLuKPqN+hxHw==}
-    engines: {node: '>=14.0.0'}
-    peerDependencies:
-      react: '>=16.8'
-      react-dom: '>=16.8'
-
-  react-router@6.30.1:
-    resolution: {integrity: sha512-X1m21aEmxGXqENEPG3T6u0Th7g0aS4ZmoNynhbs+Cn+q+QGTLt+d5IQ2bHAXKzKcxGJjxACpVbnYQSCRcfxHlQ==}
-    engines: {node: '>=14.0.0'}
-    peerDependencies:
-      react: '>=16.8'
-
-  react-window@1.8.11:
-    resolution: {integrity: sha512-+SRbUVT2scadgFSWx+R1P754xHPEqvcfSfVX10QYg6POOz+WNgkN48pS+BtZNIMGiL1HYrSEiCkwsMS15QogEQ==}
-    engines: {node: '>8.0.0'}
-    peerDependencies:
-      react: ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      react-dom: ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   react@18.3.1:
     resolution: {integrity: sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==}
@@ -5592,7 +5476,7 @@ snapshots:
       '@babel/traverse': 7.28.0
       '@babel/types': 7.28.2
       convert-source-map: 2.0.0
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -6160,7 +6044,7 @@ snapshots:
       '@babel/parser': 7.28.0
       '@babel/template': 7.27.2
       '@babel/types': 7.28.2
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -6318,7 +6202,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       espree: 9.6.1
       globals: 13.24.0
       ignore: 5.3.2
@@ -6594,7 +6478,7 @@ snapshots:
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -7223,8 +7107,6 @@ snapshots:
     dependencies:
       '@redis/client': 1.6.1
 
-  '@remix-run/router@1.23.0': {}
-
   '@rolldown/pluginutils@1.0.0-beta.27': {}
 
   '@sideway/address@4.1.5':
@@ -7297,11 +7179,6 @@ snapshots:
       tailwindcss: 3.4.17(ts-node@10.9.2(@types/node@20.19.9)(typescript@5.9.2))
 
   '@tanstack/query-core@5.83.1': {}
-
-  '@tanstack/react-query@5.84.1(react@18.3.1)':
-    dependencies:
-      '@tanstack/query-core': 5.83.1
-      react: 18.3.1
 
   '@tanstack/react-query@5.84.1(react@19.0.0)':
     dependencies:
@@ -7449,10 +7326,6 @@ snapshots:
     dependencies:
       '@types/react': 18.3.23
 
-  '@types/react-window@1.8.8':
-    dependencies:
-      '@types/react': 18.3.23
-
   '@types/react@18.3.23':
     dependencies:
       '@types/prop-types': 15.7.15
@@ -7516,7 +7389,7 @@ snapshots:
       '@typescript-eslint/type-utils': 6.21.0(eslint@8.57.1)(typescript@5.9.2)
       '@typescript-eslint/utils': 6.21.0(eslint@8.57.1)(typescript@5.9.2)
       '@typescript-eslint/visitor-keys': 6.21.0
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       eslint: 8.57.1
       graphemer: 1.4.0
       ignore: 5.3.2
@@ -7534,7 +7407,7 @@ snapshots:
       '@typescript-eslint/types': 6.21.0
       '@typescript-eslint/typescript-estree': 6.21.0(typescript@5.9.2)
       '@typescript-eslint/visitor-keys': 6.21.0
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       eslint: 8.57.1
     optionalDependencies:
       typescript: 5.9.2
@@ -7550,7 +7423,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/typescript-estree': 6.21.0(typescript@5.9.2)
       '@typescript-eslint/utils': 6.21.0(eslint@8.57.1)(typescript@5.9.2)
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       eslint: 8.57.1
       ts-api-utils: 1.4.3(typescript@5.9.2)
     optionalDependencies:
@@ -7564,7 +7437,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 6.21.0
       '@typescript-eslint/visitor-keys': 6.21.0
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       globby: 11.1.0
       is-glob: 4.0.3
       minimatch: 9.0.3
@@ -8022,8 +7895,6 @@ snapshots:
 
   caniuse-lite@1.0.30001731: {}
 
-  canvas-confetti@1.9.3: {}
-
   chalk@2.4.2:
     dependencies:
       ansi-styles: 3.2.1
@@ -8113,8 +7984,6 @@ snapshots:
       wrap-ansi: 7.0.0
 
   clone@1.0.4: {}
-
-  clsx@2.1.1: {}
 
   cluster-key-slot@1.1.2: {}
 
@@ -8321,10 +8190,6 @@ snapshots:
       ms: 2.0.0
 
   debug@3.2.7:
-    dependencies:
-      ms: 2.1.3
-
-  debug@4.4.1:
     dependencies:
       ms: 2.1.3
 
@@ -8557,7 +8422,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.1
+      debug: 4.4.1(supports-color@5.5.0)
       doctrine: 3.0.0
       escape-string-regexp: 4.0.0
       eslint-scope: 7.2.2
@@ -10593,11 +10458,6 @@ snapshots:
     dependencies:
       react: 19.0.0
 
-  react-hotkeys-hook@4.6.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-
   react-is@16.13.1: {}
 
   react-is@17.0.2:
@@ -10746,25 +10606,6 @@ snapshots:
   react-refresh@0.14.2: {}
 
   react-refresh@0.17.0: {}
-
-  react-router-dom@6.30.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      '@remix-run/router': 1.23.0
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-      react-router: 6.30.1(react@18.3.1)
-
-  react-router@6.30.1(react@18.3.1):
-    dependencies:
-      '@remix-run/router': 1.23.0
-      react: 18.3.1
-
-  react-window@1.8.11(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      '@babel/runtime': 7.28.2
-      memoize-one: 5.2.1
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
 
   react@18.3.1:
     dependencies:

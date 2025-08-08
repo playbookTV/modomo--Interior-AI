@@ -1,0 +1,30 @@
+/Users/leslieisah/modomo/backend/modomo-scraper/main_basic.py:97: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/Users/leslieisah/modomo/backend/modomo-scraper/main_basic.py:116: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [27868]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8001): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+⚠️ Houzz crawler not available - scraping will use dummy data
+🚀 Starting Modomo Scraper (Basic Mode)
+📊 Dashboard will be available at: http://localhost:3001
+📖 API docs available at: http://localhost:8001/docs
+
+💡 This is basic mode without AI dependencies.
+   Install torch, transformers, etc. for full functionality.
+
+✅ Connected to database
+✅ Connected to Redis

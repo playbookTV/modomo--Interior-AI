@@ -1,7 +1,7 @@
 // ReRoom Home Screen - Main landing page
 
 import React from 'react'
-import { View, StyleSheet, ScrollView } from 'react-native'
+import { View, StyleSheet, ScrollView, Image } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
@@ -25,11 +25,19 @@ export const HomeScreen = () => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text variant="h1" style={styles.title}>
-          Welcome to ReRoom
-        </Text>
+        <View style={styles.branding}>
+          <View style={styles.logoContainer}>
+            <Text style={styles.logoText}>🏠</Text>
+          </View>
+          <Text variant="h1" style={styles.title}>
+            ReRoom
+          </Text>
+          <Text variant="bodyLarge" color="secondary" style={styles.tagline}>
+            Snap. Style. Save.
+          </Text>
+        </View>
         <Text variant="bodyLarge" color="secondary" style={styles.subtitle}>
-          Transform your space with AI-powered interior design
+          Transform your space with AI-powered interior design and discover amazing savings
         </Text>
       </View>
 
@@ -45,19 +53,36 @@ export const HomeScreen = () => {
       )}
 
       <Card style={styles.actionCard}>
-        <Text variant="h3" style={styles.cardTitle}>
-          Ready to redesign?
-        </Text>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIcon}>📸</Text>
+          <Text variant="h3" style={styles.cardTitle}>
+            Ready to redesign?
+          </Text>
+        </View>
         <Text variant="bodyMedium" color="secondary" style={styles.cardDescription}>
-          Take a photo of your room and let our AI show you amazing transformations
+          Take a photo of your room and let our AI show you amazing transformations with real product recommendations
         </Text>
         <Button
-          title="Start Designing"
+          title="🎨 Start Designing"
           onPress={handleStartDesigning}
           size="large"
           fullWidth
           style={styles.designButton}
         />
+        <View style={styles.features}>
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>⚡</Text>
+            <Text variant="caption" color="secondary">AI-powered</Text>
+          </View>
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>💰</Text>
+            <Text variant="caption" color="secondary">Save money</Text>
+          </View>
+          <View style={styles.feature}>
+            <Text style={styles.featureIcon}>🎯</Text>
+            <Text variant="caption" color="secondary">Instant results</Text>
+          </View>
+        </View>
       </Card>
 
       {savedRooms.length > 0 && (
@@ -97,15 +122,48 @@ const styles = StyleSheet.create({
 
   header: {
     marginBottom: 32,
+    alignItems: 'center',
+  },
+
+  branding: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+
+  logoContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.primary.blue,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: Colors.primary.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  logoText: {
+    fontSize: 36,
   },
 
   title: {
-    marginBottom: 8,
+    marginBottom: 4,
     color: Colors.text.primary,
+    textAlign: 'center',
+  },
+
+  tagline: {
+    fontWeight: '600',
+    color: Colors.primary.blue,
+    marginBottom: 8,
   },
 
   subtitle: {
     lineHeight: 24,
+    textAlign: 'center',
   },
 
   savingsCard: {
@@ -116,11 +174,29 @@ const styles = StyleSheet.create({
   actionCard: {
     marginBottom: 32,
     padding: 24,
+    backgroundColor: Colors.background.primary,
+    borderRadius: 16,
+    shadowColor: Colors.primary.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  cardIcon: {
+    fontSize: 24,
+    marginRight: 12,
   },
 
   cardTitle: {
-    marginBottom: 8,
     color: Colors.text.primary,
+    flex: 1,
   },
 
   cardDescription: {
@@ -130,6 +206,25 @@ const styles = StyleSheet.create({
 
   designButton: {
     marginTop: 8,
+    marginBottom: 16,
+    backgroundColor: Colors.primary.blue,
+  },
+
+  features: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border.primary,
+  },
+
+  feature: {
+    alignItems: 'center',
+  },
+
+  featureIcon: {
+    fontSize: 16,
+    marginBottom: 4,
   },
 
   recentSection: {

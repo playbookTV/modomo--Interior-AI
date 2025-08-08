@@ -1,10 +1,147 @@
 import React, { useState, useCallback } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Check, X, Edit3, Package, Zap } from 'lucide-react'
+import { Check, X, Edit3, Package } from 'lucide-react'
 import { DetectedObject, Scene, Product } from '../types'
-import { ObjectOverlay } from './ObjectOverlay'
-import { TagEditor } from './TagEditor'
-import { ProductMatcher } from './ProductMatcher'
+import { searchProducts } from '../api/client'
+
+// Inline UI components to avoid missing module imports
+
+type ObjectOverlayProps = {
+  objects: DetectedObject[]
+  currentObjectIndex: number
+  imageWidth: number
+  imageHeight: number
+}
+
+function ObjectOverlay({ objects, currentObjectIndex, imageWidth, imageHeight }: ObjectOverlayProps) {
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {objects.map((obj, index) => {
+        const [x, y, w, h] = obj.bbox
+        // Using given imageWidth/Height as source dimensions; boxes scale with container via percentages
+        const leftPct = (x / imageWidth) * 100
+        const topPct = (y / imageHeight) * 100
+        const widthPct = (w / imageWidth) * 100
+        const heightPct = (h / imageHeight) * 100
+        const isActive = index === currentObjectIndex
+        return (
+          <div
+            key={obj.object_id}
+            className={`absolute border-2 rounded ${isActive ? 'border-green-400' : 'border-blue-400'} shadow-[0_0_0_1px_rgba(0,0,0,0.2)]`}
+            style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+            aria-label={`bbox-${obj.category}`}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+type TagEditorProps = {
+  currentTags: string[]
+  category: string
+  onSave: (tags: string[]) => void
+  onClose: () => void
+}
+
+function TagEditor({ currentTags, category, onSave, onClose }: TagEditorProps) {
+  const [value, setValue] = useState(currentTags.join(', '))
+
+  const handleSave = () => {
+    const tags = value
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean)
+    onSave(tags)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-lg shadow-xl border">
+        <h3 className="text-lg font-semibold mb-2">Edit Tags</h3>
+        <p className="text-sm text-gray-600 mb-4">Category: {category}</p>
+        <input
+          type="text"
+          className="w-full px-3 py-2 border rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="comma, separated, tags"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded border">Cancel</button>
+          <button onClick={handleSave} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type ProductMatcherProps = {
+  object: DetectedObject
+  onMatch: (productId: string) => void
+  onClose: () => void
+}
+
+function ProductMatcher({ object, onMatch, onClose }: ProductMatcherProps) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Product[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const handleSearch = async () => {
+    try {
+      setLoading(true)
+      const products = await searchProducts({ query, limit: 5 })
+      setResults(products)
+    } catch (err) {
+      console.error('Product search failed', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl border">
+        <h3 className="text-lg font-semibold mb-4">Match Product</h3>
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+            placeholder={`Search for products for ${object.category}`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button onClick={handleSearch} className="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700" disabled={loading}>
+            {loading ? 'Searching...' : 'Search'}
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded border">Close</button>
+        </div>
+        <div className="max-h-80 overflow-auto space-y-2">
+          {results.map((p) => (
+            <div key={p.product_id} className="flex items-center justify-between p-3 border rounded">
+              <div className="flex items-center gap-3">
+                <img src={p.image_url} alt={p.name} className="w-14 h-14 object-cover rounded" />
+                <div>
+                  <p className="font-medium text-sm">{p.name}</p>
+                  <p className="text-xs text-gray-500">{p.brand} • {p.category}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => onMatch(p.product_id)}
+                className="px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                Match
+              </button>
+            </div>
+          ))}
+          {!loading && results.length === 0 && (
+            <p className="text-sm text-gray-500">No results yet. Try searching.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 interface ReviewInterfaceProps {
   scene: Scene

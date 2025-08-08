@@ -14,7 +14,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'https://ovalay-recruitment-production.up.railway.app',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }
