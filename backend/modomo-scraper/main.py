@@ -19,6 +19,7 @@ import structlog
 import asyncpg
 from boto3 import client as boto3_client
 import redis
+import os
 
 # AI models
 from models.grounding_dino import GroundingDINODetector
@@ -112,16 +113,16 @@ async def startup():
     global db_pool, r2_client, redis_client, grounding_dino, sam2_segmenter, clip_embedder
     global houzz_crawler, catalog_parser
     
-    # Database connection
-    DATABASE_URL = os.getenv("DATABASE_URL")
+    # Database connection - use existing ReRoom database
+    DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_URL_CLOUD")
     db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
     
-    # R2 storage
+    # R2 storage - use existing Cloudflare R2
     r2_client = boto3_client(
         's3',
-        endpoint_url=os.getenv("R2_ENDPOINT"),
-        aws_access_key_id=os.getenv("R2_ACCESS_KEY"),
-        aws_secret_access_key=os.getenv("R2_SECRET_KEY"),
+        endpoint_url=os.getenv("CLOUDFLARE_R2_ENDPOINT"),
+        aws_access_key_id=os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
         region_name='auto'
     )
     
@@ -468,5 +469,9 @@ async def export_dataset_task(export_id: str, train_ratio: float, val_ratio: flo
         redis_client.set(f"export:{export_id}", json.dumps({"status": "failed", "error": str(e)}))
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    try:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8001, reload=True)
+    except ImportError:
+        logger.error("uvicorn not installed. Install with: pip install uvicorn[standard]")
+        print("Please install uvicorn: pip install uvicorn[standard]")

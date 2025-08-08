@@ -1,0 +1,68 @@
+# Docker Compose for Modomo Scraping System
+# Extends the main ReRoom docker-compose.yml
+
+version: '3.8'
+
+services:
+  modomo-scraper:
+    build:
+      context: ./backend/modomo-scraper
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://reroom:reroom_dev_pass@postgres:5432/reroom_dev
+      - REDIS_URL=redis://redis:6379
+      - CLOUDFLARE_R2_ENDPOINT=${CLOUDFLARE_R2_ENDPOINT}
+      - CLOUDFLARE_R2_BUCKET=${CLOUDFLARE_R2_BUCKET}
+      - CLOUDFLARE_R2_ACCESS_KEY_ID=${CLOUDFLARE_R2_ACCESS_KEY_ID}
+      - CLOUDFLARE_R2_SECRET_ACCESS_KEY=${CLOUDFLARE_R2_SECRET_ACCESS_KEY}
+      - CLOUDFLARE_R2_PUBLIC_URL=${CLOUDFLARE_R2_PUBLIC_URL}
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    volumes:
+      - ./backend/modomo-scraper:/app
+      - modomo_models:/app/models
+      - modomo_downloads:/app/downloads
+      - modomo_temp:/app/temp
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - reroom-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  modomo-dashboard:
+    build:
+      context: ./review-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - VITE_API_URL=http://localhost:8001
+      - NODE_ENV=development
+    volumes:
+      - ./review-dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - modomo-scraper
+    networks:
+      - reroom-network
+    restart: unless-stopped
+
+volumes:
+  modomo_models:
+    driver: local
+  modomo_downloads:
+    driver: local
+  modomo_temp:
+    driver: local
+
+networks:
+  reroom-network:
+    external: true

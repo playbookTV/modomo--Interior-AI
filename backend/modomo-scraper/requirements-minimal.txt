@@ -1,0 +1,30 @@
+# Minimal requirements for Modomo scraper - core functionality only
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+pydantic>=2.0.0
+
+# Database
+asyncpg>=0.28.0
+redis>=4.0.0
+
+# Storage
+boto3>=1.20.0
+
+# Basic ML (without heavy dependencies)
+pillow>=9.0.0
+numpy>=1.21.0
+requests>=2.25.0
+
+# Web scraping
+playwright>=1.30.0
+beautifulsoup4>=4.10.0
+
+# Utilities
+python-multipart>=0.0.5
+aiofiles>=22.0.0
+python-dotenv>=0.19.0
+
+# Optional AI dependencies (install separately if needed)
+# torch>=2.0.0
+# torchvision>=0.15.0  
+# transformers>=4.30.0

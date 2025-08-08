@@ -1,0 +1,44 @@
+/Users/leslieisah/modomo/backend/modomo-scraper/main-basic.py:89: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/Users/leslieisah/modomo/backend/modomo-scraper/main-basic.py:108: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [78346]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+🚀 Starting Modomo Scraper (Basic Mode)
+📊 Dashboard will be available at: http://localhost:3001
+📖 API docs available at: http://localhost:8001/docs
+
+💡 This is basic mode without AI dependencies.
+   Install torch, transformers, etc. for full functionality.
+
+✅ Connected to database
+✅ Connected to Redis
+INFO:     127.0.0.1:57137 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57144 - "GET /stats/dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58207 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58265 - "GET /stats/dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58441 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58446 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58448 - "GET /stats/dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58450 - "GET /taxonomy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58452 - "POST /test/detection HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59371 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59379 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59381 - "GET /stats/dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59383 - "GET /taxonomy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59385 - "POST /test/detection HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60262 - "GET /stats/dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60263 - "GET /stats/categories HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60264 - "GET /jobs/active HTTP/1.1" 404 Not Found

@@ -1,0 +1,24 @@
+# Docker Compose override to use pgvector-enabled PostgreSQL
+# This extends the main docker-compose.yml with pgvector support
+
+services:
+  postgres:
+    # Use PostgreSQL image with pgvector pre-installed
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: reroom_dev
+      POSTGRES_USER: reroom
+      POSTGRES_PASSWORD: reroom_dev_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/modomo-scraper/database/schema.sql:/docker-entrypoint-initdb.d/01-modomo-schema.sql
+    networks:
+      - reroom-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reroom -d reroom_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
