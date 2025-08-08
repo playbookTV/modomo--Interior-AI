@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -17,14 +18,30 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.reroom.mobile",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ReRoom needs camera access to capture room photos for AI interior design analysis.",
+        "NSPhotoLibraryUsageDescription": "ReRoom needs photo library access to select images for interior design makeovers.",
+        "NSMicrophoneUsageDescription": "ReRoom may use microphone for video capture during room scanning.",
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ],
+        "FirebaseCrashlyticsCollectionEnabled": true,
+        "FirebaseAnalyticsCollectionEnabled": false,
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.reroom.mobile"
+      "package": "com.reroom.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -32,9 +49,13 @@
     },
     "scheme": "reroom",
     "plugins": [
-      "expo-font",
-      "expo-router",
-      "expo-secure-store"
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Allow ReRoom to access your camera to capture room photos for AI interior design.",
+          "enableMicrophonePermission": false
+        }
+      ]
     ],
     "extra": {
       "router": {},

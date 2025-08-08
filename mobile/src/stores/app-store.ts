@@ -1,182 +1,175 @@
+// ReRoom App Store - Main state management with Zustand and MMKV persistence
+
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { MMKV } from 'react-native-mmkv'
-
-import type { User, Room, StyleType, CartItem, AIRender } from '../types'
+import { StyleType, CartItem, SavedRoom, AIRender, User, ProcessingStatus } from '../types'
 
 const storage = new MMKV()
 
-export interface AppState {
-  // App initialization
-  isAppReady: boolean
-  hasCompletedOnboarding: boolean
-  
-  // User state
-  user: User | null
-  isAuthenticated: boolean
-  
-  // Photo and processing
+interface AppState {
+  // Photo state
   currentPhoto: string | null
   photoQuality: 'low' | 'medium' | 'high'
   
   // AI processing
   isProcessing: boolean
-  processingProgress: number
-  processingStage: string
+  processingStatus: ProcessingStatus | null
   currentRender: AIRender | null
   renderQueue: string[]
   
-  // Style and preferences
-  selectedStyle: StyleType
-  userPreferences: {
-    budget?: { min: number; max: number }
-    preferredRetailers?: string[]
-    stylePreferences?: StyleType[]
-  }
-  
   // Shopping
+  selectedStyle: StyleType
   cartItems: CartItem[]
-  savedRooms: Room[]
+  savedRooms: SavedRoom[]
   
-  // Premium features
-  isPremiumUser: boolean
-  remainingFreeRenders: number
+  // User
+  user: User | null
+  
+  // UI state
+  isOnboarded: boolean
+  darkMode: boolean
   
   // Actions
-  setAppReady: (ready: boolean) => void
-  setOnboardingComplete: (complete: boolean) => void
-  setUser: (user: User | null) => void
-  setAuthenticated: (authenticated: boolean) => void
-  
-  // Photo actions
-  setPhoto: (uri: string | null) => void
+  setPhoto: (uri: string) => void
   setPhotoQuality: (quality: 'low' | 'medium' | 'high') => void
+  clearPhoto: () => void
   
-  // AI processing actions
-  startAIProcessing: () => void
+  startAIProcessing: (photo: string, style: StyleType) => void
   updateProcessingProgress: (progress: number) => void
   setProcessingStage: (stage: string) => void
-  setCurrentRender: (render: AIRender | null) => void
-  completeProcessing: () => void
+  setCurrentRender: (render: AIRender) => void
+  clearProcessing: () => void
   
-  // Style actions
   setSelectedStyle: (style: StyleType) => void
-  updateUserPreferences: (preferences: Partial<AppState['userPreferences']>) => void
-  
-  // Shopping actions
   addToCart: (item: CartItem) => void
   removeFromCart: (itemId: string) => void
   clearCart: () => void
   
-  // Room management
-  saveRoom: (room: Room) => void
+  saveRoom: (room: Omit<SavedRoom, 'id' | 'createdAt'>) => void
   removeRoom: (roomId: string) => void
-  updateRoom: (roomId: string, updates: Partial<Room>) => void
   
-  // Premium actions
-  setPremiumUser: (isPremium: boolean) => void
-  decrementFreeRenders: () => void
+  setUser: (user: User) => void
+  updateUserPreferences: (preferences: Partial<User>) => void
   
-  // Utility actions
-  reset: () => void
+  completeOnboarding: () => void
+  toggleDarkMode: () => void
+  
+  // Computed
+  getTotalSavings: () => number
+  getCartTotal: () => number
 }
 
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       // Initial state
-      isAppReady: false,
-      hasCompletedOnboarding: false,
-      
-      user: null,
-      isAuthenticated: false,
-      
       currentPhoto: null,
       photoQuality: 'medium',
       
       isProcessing: false,
-      processingProgress: 0,
-      processingStage: '',
+      processingStatus: null,
       currentRender: null,
       renderQueue: [],
       
       selectedStyle: 'modern',
-      userPreferences: {},
-      
       cartItems: [],
       savedRooms: [],
       
-      isPremiumUser: false,
-      remainingFreeRenders: 3,
+      user: null,
       
-      // Actions
-      setAppReady: (ready) => set({ isAppReady: ready }),
-      setOnboardingComplete: (complete) => set({ hasCompletedOnboarding: complete }),
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
-      setAuthenticated: (authenticated) => set({ isAuthenticated: authenticated }),
+      isOnboarded: false,
+      darkMode: false,
       
       // Photo actions
       setPhoto: (uri) => set({ currentPhoto: uri }),
       setPhotoQuality: (quality) => set({ photoQuality: quality }),
+      clearPhoto: () => set({ currentPhoto: null }),
       
       // AI processing actions
-      startAIProcessing: () => set({ 
-        isProcessing: true, 
-        processingProgress: 0,
-        processingStage: 'Analyzing your room...'
+      startAIProcessing: (photo, style) => set({ 
+        isProcessing: true,
+        processingStatus: { progress: 0, stage: 'Analyzing your room...' },
+        currentRender: null 
       }),
-      updateProcessingProgress: (progress) => set({ processingProgress: progress }),
-      setProcessingStage: (stage) => set({ processingStage: stage }),
-      setCurrentRender: (render) => set({ currentRender: render }),
-      completeProcessing: () => set({ 
-        isProcessing: false, 
-        processingProgress: 100,
-        processingStage: 'Complete!'
+      
+      updateProcessingProgress: (progress) => set((state) => ({
+        processingStatus: state.processingStatus ? {
+          ...state.processingStatus,
+          progress
+        } : null
+      })),
+      
+      setProcessingStage: (stage) => set((state) => ({
+        processingStatus: state.processingStatus ? {
+          ...state.processingStatus,
+          stage
+        } : null
+      })),
+      
+      setCurrentRender: (render) => set({ 
+        currentRender: render,
+        isProcessing: false,
+        processingStatus: null 
+      }),
+      
+      clearProcessing: () => set({
+        isProcessing: false,
+        processingStatus: null,
+        currentRender: null
       }),
       
       // Style actions
       setSelectedStyle: (style) => set({ selectedStyle: style }),
-      updateUserPreferences: (preferences) => set(state => ({
-        userPreferences: { ...state.userPreferences, ...preferences }
-      })),
       
       // Shopping actions
-      addToCart: (item) => set(state => ({
+      addToCart: (item) => set((state) => ({
         cartItems: [...state.cartItems, item]
       })),
-      removeFromCart: (itemId) => set(state => ({
+      
+      removeFromCart: (itemId) => set((state) => ({
         cartItems: state.cartItems.filter(item => item.id !== itemId)
       })),
+      
       clearCart: () => set({ cartItems: [] }),
       
       // Room management
-      saveRoom: (room) => set(state => ({
-        savedRooms: [...state.savedRooms, room]
-      })),
-      removeRoom: (roomId) => set(state => ({
+      saveRoom: (roomData) => {
+        const room: SavedRoom = {
+          ...roomData,
+          id: Date.now().toString(),
+          createdAt: new Date()
+        }
+        set((state) => ({
+          savedRooms: [...state.savedRooms, room]
+        }))
+      },
+      
+      removeRoom: (roomId) => set((state) => ({
         savedRooms: state.savedRooms.filter(room => room.id !== roomId)
       })),
-      updateRoom: (roomId, updates) => set(state => ({
-        savedRooms: state.savedRooms.map(room => 
-          room.id === roomId ? { ...room, ...updates } : room
-        )
+      
+      // User actions
+      setUser: (user) => set({ user }),
+      
+      updateUserPreferences: (preferences) => set((state) => ({
+        user: state.user ? { ...state.user, ...preferences } : null
       })),
       
-      // Premium actions
-      setPremiumUser: (isPremium) => set({ isPremiumUser: isPremium }),
-      decrementFreeRenders: () => set(state => ({
-        remainingFreeRenders: Math.max(0, state.remainingFreeRenders - 1)
-      })),
+      // App state
+      completeOnboarding: () => set({ isOnboarded: true }),
+      toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
       
-      // Utility actions
-      reset: () => set({
-        currentPhoto: null,
-        isProcessing: false,
-        processingProgress: 0,
-        processingStage: '',
-        currentRender: null,
-        cartItems: [],
-      }),
+      // Computed values
+      getTotalSavings: () => {
+        const { savedRooms } = get()
+        return savedRooms.reduce((total, room) => total + room.totalSavings, 0)
+      },
+      
+      getCartTotal: () => {
+        const { cartItems } = get()
+        return cartItems.reduce((total, item) => total + item.price, 0)
+      },
     }),
     {
       name: 'reroom-storage',
@@ -185,15 +178,15 @@ export const useAppStore = create<AppState>()(
         getItem: (name) => storage.getString(name) ?? null,
         removeItem: (name) => storage.delete(name),
       })),
+      // Only persist user data and saved content
       partialize: (state) => ({
-        hasCompletedOnboarding: state.hasCompletedOnboarding,
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        userPreferences: state.userPreferences,
         savedRooms: state.savedRooms,
-        isPremiumUser: state.isPremiumUser,
-        remainingFreeRenders: state.remainingFreeRenders,
+        cartItems: state.cartItems,
+        user: state.user,
+        isOnboarded: state.isOnboarded,
+        darkMode: state.darkMode,
+        selectedStyle: state.selectedStyle,
       }),
     }
   )
-) 
+)

@@ -1,54 +1,104 @@
-/**
- * BNA UI Card Component
- * Themeable card container
- */
+// ReRoom Card Component - Based on BNA UI Design System
 
-import React from 'react';
-import { View, StyleSheet, ViewStyle, ViewProps } from 'react-native';
-import { useTheme } from '@/theme/theme-provider';
+import React from 'react'
+import { View, ViewStyle, StyleSheet, TouchableOpacity, TouchableOpacityProps } from 'react-native'
+import { Colors } from '../../theme/colors'
 
-interface CardProps extends ViewProps {
-  variant?: 'default' | 'elevated' | 'outlined';
-  padding?: keyof typeof import('@/theme/globals').globals.spacing;
-  children: React.ReactNode;
+interface CardProps {
+  children: React.ReactNode
+  variant?: 'default' | 'elevated' | 'outlined'
+  padding?: 'none' | 'small' | 'medium' | 'large'
+  onPress?: () => void
+  style?: ViewStyle
+  testID?: string
+  disabled?: boolean
 }
 
-export function Card({
-  variant = 'default',
-  padding = 4,
+export const Card: React.FC<CardProps> = ({
   children,
+  variant = 'default',
+  padding = 'medium',
+  onPress,
   style,
-  ...props
-}: CardProps) {
-  const { theme } = useTheme();
-  
-  const getCardStyle = (): ViewStyle => {
-    const baseStyle: ViewStyle = {
-      backgroundColor: theme.colors.surface,
-      borderRadius: theme.globals.borderRadius.xl,
-      padding: theme.globals.spacing[padding],
-    };
+  testID,
+  disabled = false,
+}) => {
+  const cardStyles = [
+    styles.base,
+    styles[variant],
+    styles[padding],
+    disabled && styles.disabled,
+    style,
+  ]
 
-    switch (variant) {
-      case 'elevated':
-        return {
-          ...baseStyle,
-          ...theme.globals.shadow.md,
-        };
-      case 'outlined':
-        return {
-          ...baseStyle,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-        };
-      default:
-        return baseStyle;
-    }
-  };
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        style={cardStyles}
+        onPress={onPress}
+        disabled={disabled}
+        testID={testID}
+        activeOpacity={0.7}
+      >
+        {children}
+      </TouchableOpacity>
+    )
+  }
 
   return (
-    <View style={[getCardStyle(), style]} {...props}>
+    <View style={cardStyles} testID={testID}>
       {children}
     </View>
-  );
+  )
 }
+
+const styles = StyleSheet.create({
+  base: {
+    backgroundColor: Colors.background.primary,
+    borderRadius: 12,
+  },
+
+  // Variants
+  default: {
+    backgroundColor: Colors.background.primary,
+  },
+
+  elevated: {
+    backgroundColor: Colors.background.primary,
+    shadowColor: Colors.primary.black,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  outlined: {
+    backgroundColor: Colors.background.primary,
+    borderWidth: 1,
+    borderColor: Colors.border.primary,
+  },
+
+  // Padding
+  none: {
+    padding: 0,
+  },
+
+  small: {
+    padding: 12,
+  },
+
+  medium: {
+    padding: 16,
+  },
+
+  large: {
+    padding: 20,
+  },
+
+  disabled: {
+    opacity: 0.6,
+  },
+})

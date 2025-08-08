@@ -1,136 +1,60 @@
-/**
- * BNA UI Colors Configuration
- * Integrated with ReRoom design system
- */
+// ReRoom Color System - Based on UX Documentation
 
-const lightColors = {
-    // Primary brand colors from ReRoom design system
-    primary: '#0066FF',         // Electric Blue
-    primaryForeground: '#FFFFFF',
-    
-    // Secondary colors
-    secondary: '#F3F4F6',       // Soft Grey
-    secondaryForeground: '#000000',
-    
-    // Accent colors
-    accent: '#10B981',          // Forest Green
-    accentForeground: '#FFFFFF',
-    
-    // Background colors
-    background: '#FFFFFF',      // Pure White
-    backgroundSecondary: '#F8F9FA',
-    foreground: '#000000',      // Deep Black
-    
-    // Surface colors
-    surface: '#FFFFFF',
-    surfaceSecondary: '#F3F4F6',
-    
-    // Text colors
-    text: '#000000',            // Primary text
-    textSecondary: '#6B7280',   // Secondary text
-    textMuted: '#9CA3AF',       // Muted text
-    
-    // Border and dividers
-    border: '#E5E7EB',          // Light Grey
-    divider: '#F3F4F6',
-    
-    // Status colors
-    success: '#10B981',         // Forest Green
-    successForeground: '#FFFFFF',
-    warning: '#F59E0B',         // Amber Gold
-    warningForeground: '#FFFFFF',
-    error: '#EF4444',           // Deep Red
-    errorForeground: '#FFFFFF',
-    info: '#0066FF',
-    infoForeground: '#FFFFFF',
-    
-    // Interactive states
-    interactive: '#0066FF',
-    interactiveHover: '#0052CC',
-    interactivePressed: '#003D99',
-    interactiveDisabled: '#9CA3AF',
-    
-    // Overlay colors
-    overlay: 'rgba(0, 0, 0, 0.5)',
-    modalOverlay: 'rgba(0, 0, 0, 0.6)',
-    
-    // Camera specific colors
-    cameraBackground: '#000000',
-    cameraControls: 'rgba(255, 255, 255, 0.9)',
-    cameraAccent: '#0066FF',
-    
-    // Gallery specific colors
-    galleryBackground: '#F8F9FA',
-    galleryCard: '#FFFFFF',
-    gallerySelected: '#0066FF',
-};
-
-const darkColors = {
-    // Primary brand colors adapted for dark mode
-    primary: '#0066FF',
-    primaryForeground: '#FFFFFF',
-    
-    // Secondary colors
-    secondary: '#1F1F1F',
-    secondaryForeground: '#FFFFFF',
-    
-    // Accent colors
-    accent: '#10B981',
-    accentForeground: '#FFFFFF',
-    
-    // Background colors
-    background: '#000000',
-    backgroundSecondary: '#111111',
-    foreground: '#FFFFFF',
-    
-    // Surface colors
-    surface: '#1F1F1F',
-    surfaceSecondary: '#2A2A2A',
-    
-    // Text colors
-    text: '#FFFFFF',
-    textSecondary: '#A3A3A3',
-    textMuted: '#6B7280',
-    
-    // Border and dividers
-    border: '#374151',
-    divider: '#2A2A2A',
-    
-    // Status colors
+export const Colors = {
+  // Primary Colors
+  primary: {
+    black: '#000000',        // Headers, primary text
+    white: '#FFFFFF',        // Backgrounds, cards  
+    blue: '#0066FF',         // CTAs, interactive elements
+  },
+  
+  // Secondary Colors
+  secondary: {
+    green: '#10B981',        // Success, savings indicators
+    amber: '#F59E0B',        // Warnings, alerts
+    grey: '#F3F4F6',         // Inactive elements, borders
+    red: '#EF4444',          // Errors, urgent actions
+  },
+  
+  // Text Colors
+  text: {
+    primary: '#000000',
+    secondary: '#666666',
+    tertiary: '#999999',
+    inverse: '#FFFFFF',
+  },
+  
+  // Background Colors
+  background: {
+    primary: '#FFFFFF',
+    secondary: '#F3F4F6',
+    tertiary: '#F9FAFB',
+    inverse: '#000000',
+  },
+  
+  // Border Colors
+  border: {
+    primary: '#E5E7EB',
+    secondary: '#D1D5DB',
+    focus: '#0066FF',
+  },
+  
+  // Semantic Colors
+  semantic: {
     success: '#10B981',
-    successForeground: '#FFFFFF',
-    warning: '#F59E0B',
-    warningForeground: '#FFFFFF',
+    warning: '#F59E0B', 
     error: '#EF4444',
-    errorForeground: '#FFFFFF',
     info: '#0066FF',
-    infoForeground: '#FFFFFF',
-    
-    // Interactive states
-    interactive: '#0066FF',
-    interactiveHover: '#1A7CFF',
-    interactivePressed: '#0052CC',
-    interactiveDisabled: '#6B7280',
-    
-    // Overlay colors
-    overlay: 'rgba(0, 0, 0, 0.7)',
-    modalOverlay: 'rgba(0, 0, 0, 0.8)',
-    
-    // Camera specific colors
-    cameraBackground: '#000000',
-    cameraControls: 'rgba(255, 255, 255, 0.9)',
-    cameraAccent: '#0066FF',
-    
-    // Gallery specific colors
-    galleryBackground: '#111111',
-    galleryCard: '#1F1F1F',
-    gallerySelected: '#0066FF',
-};
+  },
+  
+  // Dark mode support
+  dark: {
+    background: '#000000',
+    surface: '#1C1C1E',
+    text: '#FFFFFF',
+    textSecondary: '#EBEBF5',
+    border: '#38383A',
+  },
+} as const
 
-export const colors = {
-  light: lightColors,
-  dark: darkColors,
-} as const;
-
-export type Colors = typeof lightColors;
-export type ColorName = keyof Colors;
+export type ColorKeys = keyof typeof Colors

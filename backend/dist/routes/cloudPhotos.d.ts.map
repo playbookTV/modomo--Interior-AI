@@ -1,1 +1,1 @@
-{"version":3,"file":"cloudPhotos.d.ts","sourceRoot":"","sources":["../../src/routes/cloudPhotos.ts"],"names":[],"mappings":"AAOA,QAAA,MAAM,MAAM,EAAE,GAAsB,CAAA;AAoXpC,eAAe,MAAM,CAAA"}
+{"version":3,"file":"cloudPhotos.d.ts","sourceRoot":"","sources":["../../src/routes/cloudPhotos.ts"],"names":[],"mappings":"AAAA,OAAgB,EAAY,MAAM,EAAE,MAAM,SAAS,CAAA;AAOnD,QAAA,MAAM,MAAM,EAAE,MAAyB,CAAA;AA8bvC,eAAe,MAAM,CAAA"}

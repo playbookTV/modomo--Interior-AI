@@ -20,7 +20,6 @@ export class CloudflareR2Service {
     const requiredEnvVars = {
       CLOUDFLARE_R2_ENDPOINT: process.env.CLOUDFLARE_R2_ENDPOINT,
       CLOUDFLARE_R2_BUCKET: process.env.CLOUDFLARE_R2_BUCKET,
-      CLOUDFLARE_R2_PUBLIC_URL: process.env.CLOUDFLARE_R2_PUBLIC_URL,
       CLOUDFLARE_R2_ACCESS_KEY_ID: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
     }
@@ -37,7 +36,10 @@ export class CloudflareR2Service {
 
     this.bucketUrl = requiredEnvVars.CLOUDFLARE_R2_ENDPOINT!
     this.bucketName = requiredEnvVars.CLOUDFLARE_R2_BUCKET!
-    this.publicUrl = requiredEnvVars.CLOUDFLARE_R2_PUBLIC_URL!
+    
+    // Generate public URL from R2 endpoint and bucket name
+    // Format: https://account-id.r2.cloudflarestorage.com/bucket-name
+    this.publicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL || `${this.bucketUrl}/${this.bucketName}`
 
     this.client = new S3Client({
       region: 'auto',

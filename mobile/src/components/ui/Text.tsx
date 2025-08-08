@@ -1,108 +1,78 @@
-/**
- * BNA UI Text Component
- * Themeable text with typography variants
- */
+// ReRoom Text Component - Based on BNA UI Design System
 
-import React from 'react';
-import { Text as RNText, TextStyle, TextProps as RNTextProps } from 'react-native';
-import { useTheme } from '@/theme/theme-provider';
+import React from 'react'
+import { Text as RNText, TextStyle, TextProps as RNTextProps } from 'react-native'
+import { Colors } from '../../theme/colors'
+import { Typography, TypographyKeys } from '../../theme/typography'
 
 interface TextProps extends RNTextProps {
-  variant?: 'h1' | 'h2' | 'h3' | 'h4' | 'body' | 'caption' | 'label';
-  color?: 'primary' | 'secondary' | 'muted' | 'success' | 'warning' | 'error';
-  weight?: 'normal' | 'medium' | 'semiBold' | 'bold';
-  align?: 'left' | 'center' | 'right';
-  children: React.ReactNode;
+  variant?: TypographyKeys
+  color?: 'primary' | 'secondary' | 'tertiary' | 'inverse' | 'success' | 'warning' | 'error' | 'info'
+  align?: 'left' | 'center' | 'right'
+  weight?: 'normal' | 'medium' | 'semibold' | 'bold'
+  children: React.ReactNode
+  style?: TextStyle
 }
 
-export function Text({
-  variant = 'body',
+export const Text: React.FC<TextProps> = ({
+  variant = 'bodyMedium',
   color = 'primary',
-  weight,
   align = 'left',
+  weight,
   children,
   style,
   ...props
-}: TextProps) {
-  const { theme } = useTheme();
-  
-  const getTextStyle = (): TextStyle => {
-    const baseStyle: TextStyle = {
-      textAlign: align,
-    };
-
-    // Font size and line height based on variant
-    switch (variant) {
-      case 'h1':
-        baseStyle.fontSize = theme.globals.typography.fontSize['4xl'];
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.bold;
-        baseStyle.lineHeight = theme.globals.typography.fontSize['4xl'] * 1.2;
-        break;
-      case 'h2':
-        baseStyle.fontSize = theme.globals.typography.fontSize['3xl'];
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.bold;
-        baseStyle.lineHeight = theme.globals.typography.fontSize['3xl'] * 1.2;
-        break;
-      case 'h3':
-        baseStyle.fontSize = theme.globals.typography.fontSize['2xl'];
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.semiBold;
-        baseStyle.lineHeight = theme.globals.typography.fontSize['2xl'] * 1.3;
-        break;
-      case 'h4':
-        baseStyle.fontSize = theme.globals.typography.fontSize.xl;
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.semiBold;
-        baseStyle.lineHeight = theme.globals.typography.fontSize.xl * 1.3;
-        break;
-      case 'body':
-        baseStyle.fontSize = theme.globals.typography.fontSize.base;
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.normal;
-        baseStyle.lineHeight = theme.globals.typography.fontSize.base * 1.4;
-        break;
-      case 'caption':
-        baseStyle.fontSize = theme.globals.typography.fontSize.sm;
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.normal;
-        baseStyle.lineHeight = theme.globals.typography.fontSize.sm * 1.4;
-        break;
-      case 'label':
-        baseStyle.fontSize = theme.globals.typography.fontSize.sm;
-        baseStyle.fontWeight = theme.globals.typography.fontWeight.medium;
-        baseStyle.lineHeight = theme.globals.typography.fontSize.sm * 1.3;
-        break;
-    }
-
-    // Override font weight if specified
-    if (weight) {
-      baseStyle.fontWeight = theme.globals.typography.fontWeight[weight];
-    }
-
-    // Color based on color prop
+}) => {
+  const getColor = () => {
     switch (color) {
       case 'primary':
-        baseStyle.color = theme.colors.text;
-        break;
+        return Colors.text.primary
       case 'secondary':
-        baseStyle.color = theme.colors.textSecondary;
-        break;
-      case 'muted':
-        baseStyle.color = theme.colors.textMuted;
-        break;
+        return Colors.text.secondary
+      case 'tertiary':
+        return Colors.text.tertiary
+      case 'inverse':
+        return Colors.text.inverse
       case 'success':
-        baseStyle.color = theme.colors.success;
-        break;
+        return Colors.semantic.success
       case 'warning':
-        baseStyle.color = theme.colors.warning;
-        break;
+        return Colors.semantic.warning
       case 'error':
-        baseStyle.color = theme.colors.error;
-        break;
+        return Colors.semantic.error
+      case 'info':
+        return Colors.semantic.info
+      default:
+        return Colors.text.primary
     }
+  }
 
-    return baseStyle;
-  };
+  const getFontWeight = () => {
+    if (weight) {
+      switch (weight) {
+        case 'normal':
+          return '400'
+        case 'medium':
+          return '500'
+        case 'semibold':
+          return '600'
+        case 'bold':
+          return '700'
+      }
+    }
+    return Typography[variant].fontWeight
+  }
+
+  const textStyles: TextStyle = {
+    ...Typography[variant],
+    color: getColor(),
+    textAlign: align,
+    fontWeight: getFontWeight() as any,
+    ...style,
+  }
 
   return (
-    <RNText style={[getTextStyle(), style]} {...props}>
+    <RNText style={textStyles} {...props}>
       {children}
     </RNText>
-  );
+  )
 }

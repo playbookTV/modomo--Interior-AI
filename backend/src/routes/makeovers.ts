@@ -1,10 +1,10 @@
-import express from 'express'
+import express, { Request, Response, Router } from 'express'
 import crypto from 'crypto'
 import { SupabaseService } from '../services/supabaseService'
 import { RunPodService } from '../services/runpodService'
 import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
 
-const router: any = express.Router()
+const router: Router = express.Router()
 const supabaseService = new SupabaseService()
 const runpodService = new RunPodService()
 
@@ -45,7 +45,7 @@ router.get('/:makeoverId',
   ClerkExpressRequireAuth(),
   async (req, res) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
       const { makeoverId } = req.params
 
       const makeover = await supabaseService.getMakeover(makeoverId)
@@ -59,17 +59,17 @@ router.get('/:makeoverId',
         })
       }
 
-      res.json({
+      return res.json({
         success: true,
         data: makeover
       })
 
     } catch (error) {
       console.error('❌ Failed to get makeover:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to get makeover',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'GET_ERROR'
       })
     }
@@ -84,7 +84,7 @@ router.post('/:makeoverId/retry',
   ClerkExpressRequireAuth(),
   async (req, res) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
       const { makeoverId } = req.params
 
       // Get makeover details
@@ -128,7 +128,7 @@ router.post('/:makeoverId/retry',
         room_type: makeover.room_type
       })
 
-      res.json({
+      return res.json({
         success: true,
         data: {
           makeover_id: makeoverId,
@@ -140,10 +140,10 @@ router.post('/:makeoverId/retry',
 
     } catch (error) {
       console.error('❌ Failed to retry makeover:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to retry makeover',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'RETRY_ERROR'
       })
     }
@@ -156,9 +156,9 @@ router.post('/:makeoverId/retry',
  */
 router.post('/:makeoverId/cancel', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
       const { makeoverId } = req.params
 
       // Get makeover details
@@ -208,17 +208,17 @@ router.post('/:makeoverId/cancel',
         completed_at: new Date().toISOString()
       })
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Makeover cancelled successfully'
       })
 
     } catch (error) {
       console.error('❌ Failed to cancel makeover:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to cancel makeover',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'CANCEL_ERROR'
       })
     }
@@ -231,9 +231,9 @@ router.post('/:makeoverId/cancel',
  */
 router.get('/', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
       const limit = parseInt(req.query.limit as string) || 20
       const offset = parseInt(req.query.offset as string) || 0
       const status = req.query.status as string
@@ -264,7 +264,7 @@ router.get('/',
 
       if (error) throw error
 
-      res.json({
+      return res.json({
         success: true,
         data: makeovers || [],
         count: makeovers?.length || 0,
@@ -277,10 +277,10 @@ router.get('/',
 
     } catch (error) {
       console.error('❌ Failed to get makeover history:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to get makeover history',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'HISTORY_ERROR'
       })
     }
@@ -295,7 +295,7 @@ router.get('/',
  * 🔔 RunPod webhook callback handler
  * POST /api/makeovers/callback
  */
-router.post('/callback', async (req, res) => {
+router.post('/callback', async (req: Request, res: Response) => {
   try {
     console.log('🔔 RunPod webhook received:', JSON.stringify(req.body, null, 2))
 
@@ -328,17 +328,17 @@ router.post('/callback', async (req, res) => {
       })
 
     // Respond immediately to RunPod
-    res.json({
+    return res.json({
       success: true,
       message: 'Webhook received and processing'
     })
 
   } catch (error) {
     console.error('❌ Webhook callback failed:', error)
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Webhook processing failed',
-      message: error.message
+      message: error instanceof Error ? error.message : String(error)
     })
   }
 })
@@ -349,9 +349,9 @@ router.post('/callback', async (req, res) => {
  */
 router.post('/:makeoverId/check-status', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
       const { makeoverId } = req.params
 
       // Get makeover with RunPod job ID
@@ -396,7 +396,7 @@ router.post('/:makeoverId/check-status',
         await runpodService.handleWebhookCallback(jobStatus)
       }
 
-      res.json({
+      return res.json({
         success: true,
         data: {
           makeover_id: makeoverId,
@@ -408,10 +408,10 @@ router.post('/:makeoverId/check-status',
 
     } catch (error) {
       console.error('❌ Failed to check job status:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to check job status',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'STATUS_CHECK_ERROR'
       })
     }
@@ -428,9 +428,9 @@ router.post('/:makeoverId/check-status',
  */
 router.get('/stats', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      const { userId } = req.auth
+      const { userId } = req.auth as any
 
       // Get makeover statistics
       const { data: stats, error } = await supabaseService.supabase
@@ -449,7 +449,7 @@ router.get('/stats',
       // Get user profile stats
       const userStats = await supabaseService.getUserStats(userId)
 
-      res.json({
+      return res.json({
         success: true,
         data: {
           total_makeovers: userStats.total_makeovers,
@@ -467,10 +467,10 @@ router.get('/stats',
 
     } catch (error) {
       console.error('❌ Failed to get makeover stats:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to get makeover statistics',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'STATS_ERROR'
       })
     }

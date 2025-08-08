@@ -1,11 +1,11 @@
-import express from 'express'
+import express, { Response, Router } from 'express'
 import multer from 'multer'
 import { CloudflareR2Service } from '../services/cloudflareR2'
 import { SupabaseService } from '../services/supabaseService'
 import { RunPodService } from '../services/runpodService'
 import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
 
-const router: any = express.Router()
+const router: Router = express.Router()
 const r2Service = new CloudflareR2Service()
 const supabaseService = new SupabaseService()
 const runpodService = new RunPodService()
@@ -17,7 +17,7 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB max file size
     files: 1 // Single file upload
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     // Enhanced file validation
     const allowedMimeTypes = [
       'image/jpeg',
@@ -61,7 +61,7 @@ const upload = multer({
 router.post('/upload', 
   ClerkExpressRequireAuth(), // Clerk authentication middleware
   upload.single('photo'),
-  async (req, res) => {
+  async (req: any, res: Response) => {
     try {
       if (!req.file) {
         return res.status(400).json({ 
@@ -74,7 +74,7 @@ router.post('/upload',
       const { userId } = req.auth // From Clerk middleware
       
       // Safe JSON parsing with validation
-      let metadata = {}
+      let metadata: any = {}
       if (req.body.metadata) {
         try {
           const parsedMetadata = JSON.parse(req.body.metadata)
@@ -181,7 +181,7 @@ router.post('/upload',
       }
 
       // Step 5: Return success response
-      res.json({
+      return res.json({
         success: true,
         data: {
           id: photoRecord.id,
@@ -201,10 +201,10 @@ router.post('/upload',
 
     } catch (error) {
       console.error('❌ Photo upload failed:', error)
-      res.status(500).json({ 
+      return res.status(500).json({ 
         success: false,
         error: 'Upload failed',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'UPLOAD_ERROR'
       })
     }
@@ -217,7 +217,7 @@ router.post('/upload',
  */
 router.get('/', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: any, res: Response) => {
     try {
       const { userId } = req.auth
       const limit = parseInt(req.query.limit as string) || 50
@@ -225,7 +225,7 @@ router.get('/',
 
       const photos = await supabaseService.getUserPhotos(userId, limit, offset)
 
-      res.json({
+      return res.json({
         success: true,
         data: photos,
         count: photos.length,
@@ -238,10 +238,10 @@ router.get('/',
 
     } catch (error) {
       console.error('❌ Failed to fetch photos:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to fetch photos',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'FETCH_ERROR'
       })
     }
@@ -254,7 +254,7 @@ router.get('/',
  */
 router.get('/:photoId', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: any, res: Response) => {
     try {
       const { userId } = req.auth
       const { photoId } = req.params
@@ -288,17 +288,17 @@ router.get('/:photoId',
         })
       }
 
-      res.json({
+      return res.json({
         success: true,
         data: photos[0]
       })
 
     } catch (error) {
       console.error('❌ Failed to get photo:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to get photo',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'GET_ERROR'
       })
     }
@@ -311,7 +311,7 @@ router.get('/:photoId',
  */
 router.delete('/:photoId', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: any, res: Response) => {
     try {
       const { userId } = req.auth
       const { photoId } = req.params
@@ -355,17 +355,17 @@ router.delete('/:photoId',
 
       if (deleteError) throw deleteError
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Photo deleted successfully'
       })
 
     } catch (error) {
       console.error('❌ Failed to delete photo:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to delete photo',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'DELETE_ERROR'
       })
     }
@@ -382,10 +382,10 @@ router.delete('/:photoId',
  */
 router.post('/signed-url', 
   ClerkExpressRequireAuth(),
-  async (req, res) => {
+  async (req: any, res: Response) => {
     try {
       const { userId } = req.auth
-      const { originalName, contentType } = req.body
+      const { originalName, contentType: _contentType } = req.body
 
       if (!originalName) {
         return res.status(400).json({
@@ -397,17 +397,17 @@ router.post('/signed-url',
 
       const signedUrlData = await r2Service.getSignedUploadUrl(userId, originalName)
 
-      res.json({
+      return res.json({
         success: true,
         data: signedUrlData
       })
 
     } catch (error) {
       console.error('❌ Failed to generate signed URL:', error)
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to generate upload URL',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         code: 'SIGNED_URL_ERROR'
       })
     }
@@ -422,7 +422,7 @@ router.post('/signed-url',
  * 🏥 Health check for photo service
  * GET /api/photos/health
  */
-router.get('/health', async (req, res) => {
+router.get('/health', async (_req: any, res: Response) => {
   try {
     const r2Health = await r2Service.healthCheck()
     const supabaseHealth = await supabaseService.healthCheck()
@@ -430,7 +430,7 @@ router.get('/health', async (req, res) => {
 
     const overall = r2Health && supabaseHealth && runpodHealth
 
-    res.json({
+    return res.json({
       success: true,
       status: overall ? 'healthy' : 'degraded',
       services: {
@@ -443,10 +443,10 @@ router.get('/health', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Health check failed:', error)
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       status: 'unhealthy',
-      error: error.message
+      error: error instanceof Error ? error.message : String(error)
     })
   }
 })

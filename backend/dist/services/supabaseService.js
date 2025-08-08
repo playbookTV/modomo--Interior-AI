@@ -44,7 +44,7 @@ class SupabaseService {
         }
         catch (error) {
             console.error('❌ Failed to create/update user:', error);
-            throw new Error(`User operation failed: ${error.message}`);
+            throw new Error(`User operation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
     async getUser(clerkUserId) {
@@ -82,7 +82,7 @@ class SupabaseService {
         }
         catch (error) {
             console.error('❌ Failed to create photo:', error);
-            throw new Error(`Photo creation failed: ${error.message}`);
+            throw new Error(`Photo creation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
     async getUserPhotos(clerkUserId, limit = 50, offset = 0) {
@@ -156,7 +156,7 @@ class SupabaseService {
         }
         catch (error) {
             console.error('❌ Failed to create makeover:', error);
-            throw new Error(`Makeover creation failed: ${error.message}`);
+            throw new Error(`Makeover creation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
     async updateMakeover(makeoverId, updates) {

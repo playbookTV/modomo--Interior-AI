@@ -43,9 +43,9 @@ app.use((0, cors_1.default)({
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
 app.use((0, compression_1.default)());
-const limiter = (0, express_rate_limit_1.default)({
+const basicLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000,
-    max: 1000,
+    max: 100,
     message: {
         success: false,
         error: 'Too many requests, please try again later',
@@ -54,7 +54,19 @@ const limiter = (0, express_rate_limit_1.default)({
     standardHeaders: true,
     legacyHeaders: false,
 });
-app.use(limiter);
+const authLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 5 * 60 * 1000,
+    max: 50,
+    keyGenerator: (req) => {
+        return req.auth?.userId || req.ip;
+    },
+    message: {
+        success: false,
+        error: 'Too many authenticated requests, please slow down',
+        code: 'AUTH_RATE_LIMIT_EXCEEDED'
+    }
+});
+app.use(basicLimiter);
 const uploadLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000,
     max: 50,
@@ -73,7 +85,7 @@ app.use((req, res, next) => {
     });
     next();
 });
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
     try {
         const startTime = Date.now();
         const [r2Health, supabaseHealth, runpodHealth] = await Promise.allSettled([
@@ -119,19 +131,19 @@ app.get('/health', async (req, res) => {
         res.status(503).json({
             status: 'unhealthy',
             timestamp: new Date().toISOString(),
-            error: error.message
+            error: error instanceof Error ? error.message : String(error)
         });
     }
 });
-app.get('/status', (req, res) => {
+app.get('/status', (_req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString()
     });
 });
-app.use('/api/photos', uploadLimiter, cloudPhotos_1.default);
-app.use('/api/makeovers', makeovers_1.default);
-app.get('/', (req, res) => {
+app.use('/api/photos', uploadLimiter, authLimiter, cloudPhotos_1.default);
+app.use('/api/makeovers', authLimiter, makeovers_1.default);
+app.get('/', (_req, res) => {
     res.json({
         service: 'ReRoom Cloud Backend',
         version: '2.0.0',
@@ -154,7 +166,7 @@ app.use('*', (req, res) => {
         method: req.method
     });
 });
-app.use((error, req, res, next) => {
+app.use((error, _req, res, _next) => {
     console.error('❌ Unhandled error:', error);
     if (error.name === 'ClerkAPIError') {
         return res.status(401).json({
@@ -179,7 +191,7 @@ app.use((error, req, res, next) => {
             code: 'INVALID_FILE_FIELD'
         });
     }
-    res.status(500).json({
+    return res.status(500).json({
         success: false,
         error: 'Internal server error',
         code: 'INTERNAL_ERROR',

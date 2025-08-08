@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import express from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import compression from 'compression'
@@ -15,7 +15,7 @@ import { cloudflareR2Service } from './services/cloudflareR2'
 import { supabaseService } from './services/supabaseService'
 import { runpodService } from './services/runpodService'
 
-const app: any = express()
+const app: express.Application = express()
 const PORT = process.env.PORT || 6969
 
 // =============================================================================
@@ -73,9 +73,9 @@ const basicLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 50, // 50 requests per 5 minutes for auth endpoints
-  keyGenerator: (req) => {
+  keyGenerator: (req: Request) => {
     // Use user ID if authenticated, otherwise IP
-    return req.auth?.userId || req.ip
+    return (req as any).auth?.userId || req.ip
   },
   message: {
     success: false,
@@ -101,7 +101,7 @@ const uploadLimiter = rateLimit({
 app.use(ClerkExpressWithAuth())
 
 // Request logging middleware
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now()
   
   res.on('finish', () => {
@@ -120,7 +120,7 @@ app.use((req, res, next) => {
  * 🏥 Main health check endpoint
  * GET /health
  */
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req: Request, res: Response) => {
   try {
     const startTime = Date.now()
 
@@ -172,7 +172,7 @@ app.get('/health', async (req, res) => {
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
-      error: error.message
+      error: error instanceof Error ? error.message : String(error)
     })
   }
 })
@@ -181,7 +181,7 @@ app.get('/health', async (req, res) => {
  * 📊 Basic status endpoint for load balancers
  * GET /status
  */
-app.get('/status', (req, res) => {
+app.get('/status', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString()
@@ -200,7 +200,7 @@ app.use('/api/makeovers', authLimiter, makeoversRouter)
 // ROOT ENDPOINT
 // =============================================================================
 
-app.get('/', (req, res) => {
+app.get('/', (_req: Request, res: Response) => {
   res.json({
     service: 'ReRoom Cloud Backend',
     version: '2.0.0',
@@ -220,7 +220,7 @@ app.get('/', (req, res) => {
 // =============================================================================
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     error: 'Endpoint not found',
@@ -231,7 +231,7 @@ app.use('*', (req, res) => {
 })
 
 // Global error handler
-app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('❌ Unhandled error:', error)
 
   // Clerk authentication errors
@@ -263,7 +263,7 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   }
 
   // Generic server error
-  res.status(500).json({
+  return res.status(500).json({
     success: false,
     error: 'Internal server error',
     code: 'INTERNAL_ERROR',

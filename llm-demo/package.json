@@ -1,0 +1,19 @@
+{
+  "name": "llm-demo",
+  "version": "1.0.0",
+  "description": "Interior Design AI Testing Environment",
+  "scripts": {
+    "dev": "concurrently \"pnpm run dev:frontend\" \"pnpm run dev:backend\"",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8080",
+    "install:all": "pnpm install && cd frontend && pnpm install && cd ../backend && pip install -r requirements.txt",
+    "build": "cd frontend && pnpm build",
+    "test": "cd frontend && pnpm test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "frontend"
+  ]
+}

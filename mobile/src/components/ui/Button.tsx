@@ -1,144 +1,172 @@
-/**
- * BNA UI Button Component
- * Themeable button with multiple variants
- */
+// ReRoom Button Component - Based on BNA UI Design System
 
-import React from 'react';
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ViewStyle,
-  TextStyle,
-  TouchableOpacityProps,
-} from 'react-native';
-import { useTheme } from '@/theme/theme-provider';
+import React from 'react'
+import { 
+  TouchableOpacity, 
+  Text, 
+  StyleSheet, 
+  ActivityIndicator, 
+  ViewStyle, 
+  TextStyle 
+} from 'react-native'
+import { Colors } from '../../theme/colors'
+import { Typography } from '../../theme/typography'
 
-interface ButtonProps extends TouchableOpacityProps {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
-  size?: 'sm' | 'md' | 'lg' | 'xl';
-  children: React.ReactNode;
-  loading?: boolean;
-  fullWidth?: boolean;
-  leftIcon?: React.ReactNode;
-  rightIcon?: React.ReactNode;
+interface ButtonProps {
+  title: string
+  onPress: () => void
+  variant?: 'primary' | 'secondary' | 'destructive' | 'outline'
+  size?: 'small' | 'medium' | 'large'
+  disabled?: boolean
+  loading?: boolean
+  fullWidth?: boolean
+  style?: ViewStyle
+  textStyle?: TextStyle
+  testID?: string
 }
 
-export function Button({
+export const Button: React.FC<ButtonProps> = ({
+  title,
+  onPress,
   variant = 'primary',
-  size = 'md',
-  children,
+  size = 'medium',
+  disabled = false,
   loading = false,
   fullWidth = false,
-  leftIcon,
-  rightIcon,
-  disabled,
   style,
-  ...props
-}: ButtonProps) {
-  const { theme } = useTheme();
-  
-  const getButtonStyle = (): ViewStyle => {
-    const baseStyle: ViewStyle = {
-      height: theme.globals.components.button.height[size],
-      paddingHorizontal: theme.globals.components.button.paddingHorizontal[size],
-      borderRadius: theme.globals.borderRadius.lg,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: theme.globals.spacing[2],
-    };
+  textStyle,
+  testID,
+}) => {
+  const isDisabled = disabled || loading
 
-    if (fullWidth) {
-      baseStyle.width = '100%';
-    }
+  const buttonStyles = [
+    styles.base,
+    styles[variant],
+    styles[size],
+    fullWidth && styles.fullWidth,
+    isDisabled && styles.disabled,
+    style,
+  ]
 
-    switch (variant) {
-      case 'primary':
-        return {
-          ...baseStyle,
-          backgroundColor: disabled ? theme.colors.interactiveDisabled : theme.colors.primary,
-          ...theme.globals.shadow.md,
-        };
-      case 'secondary':
-        return {
-          ...baseStyle,
-          backgroundColor: disabled ? theme.colors.interactiveDisabled : theme.colors.secondary,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-        };
-      case 'outline':
-        return {
-          ...baseStyle,
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          borderColor: disabled ? theme.colors.interactiveDisabled : theme.colors.primary,
-        };
-      case 'ghost':
-        return {
-          ...baseStyle,
-          backgroundColor: 'transparent',
-        };
-      default:
-        return baseStyle;
-    }
-  };
-
-  const getTextStyle = (): TextStyle => {
-    const baseStyle: TextStyle = {
-      fontSize: size === 'sm' ? theme.globals.typography.fontSize.sm : 
-                size === 'lg' ? theme.globals.typography.fontSize.lg :
-                size === 'xl' ? theme.globals.typography.fontSize.xl :
-                theme.globals.typography.fontSize.base,
-      fontWeight: theme.globals.typography.fontWeight.semiBold,
-    };
-
-    switch (variant) {
-      case 'primary':
-        return {
-          ...baseStyle,
-          color: disabled ? theme.colors.textMuted : theme.colors.primaryForeground,
-        };
-      case 'secondary':
-        return {
-          ...baseStyle,
-          color: disabled ? theme.colors.textMuted : theme.colors.secondaryForeground,
-        };
-      case 'outline':
-        return {
-          ...baseStyle,
-          color: disabled ? theme.colors.interactiveDisabled : theme.colors.primary,
-        };
-      case 'ghost':
-        return {
-          ...baseStyle,
-          color: disabled ? theme.colors.interactiveDisabled : theme.colors.text,
-        };
-      default:
-        return baseStyle;
-    }
-  };
+  const textStyles = [
+    styles.text,
+    styles[`${variant}Text`],
+    styles[`${size}Text`],
+    isDisabled && styles.disabledText,
+    textStyle,
+  ]
 
   return (
     <TouchableOpacity
-      style={[getButtonStyle(), style]}
-      disabled={disabled || loading}
+      style={buttonStyles}
+      onPress={onPress}
+      disabled={isDisabled}
+      testID={testID}
       activeOpacity={0.7}
-      {...props}
     >
       {loading ? (
-        <ActivityIndicator
+        <ActivityIndicator 
+          color={variant === 'primary' ? Colors.primary.white : Colors.primary.blue} 
           size="small"
-          color={variant === 'primary' ? theme.colors.primaryForeground : theme.colors.primary}
         />
       ) : (
-        <>
-          {leftIcon}
-          <Text style={getTextStyle()}>{children}</Text>
-          {rightIcon}
-        </>
+        <Text style={textStyles}>{title}</Text>
       )}
     </TouchableOpacity>
-  );
+  )
 }
+
+const styles = StyleSheet.create({
+  // Base styles
+  base: {
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  
+  fullWidth: {
+    width: '100%',
+  },
+  
+  disabled: {
+    opacity: 0.6,
+  },
+  
+  // Variants
+  primary: {
+    backgroundColor: Colors.primary.blue,
+  },
+  
+  secondary: {
+    backgroundColor: Colors.primary.white,
+    borderColor: Colors.border.primary,
+  },
+  
+  destructive: {
+    backgroundColor: Colors.semantic.error,
+  },
+  
+  outline: {
+    backgroundColor: 'transparent',
+    borderColor: Colors.primary.blue,
+  },
+  
+  // Sizes
+  small: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 36,
+  },
+  
+  medium: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  
+  large: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    minHeight: 52,
+  },
+  
+  // Text styles
+  text: {
+    ...Typography.button,
+    textAlign: 'center',
+  },
+  
+  primaryText: {
+    color: Colors.primary.white,
+  },
+  
+  secondaryText: {
+    color: Colors.primary.blue,
+  },
+  
+  destructiveText: {
+    color: Colors.primary.white,
+  },
+  
+  outlineText: {
+    color: Colors.primary.blue,
+  },
+  
+  smallText: {
+    fontSize: 14,
+  },
+  
+  mediumText: {
+    fontSize: 16,
+  },
+  
+  largeText: {
+    fontSize: 18,
+  },
+  
+  disabledText: {
+    opacity: 0.8,
+  },
+})

@@ -92,7 +92,7 @@ export class RunPodService {
       // Update makeover status to failed
       await supabaseService.updateMakeover(makeoverData.makeover_id, {
         status: 'failed',
-        error_message: error.message || 'RunPod job submission failed'
+        error_message: error instanceof Error ? error.message : 'RunPod job submission failed'
       })
       
       throw error

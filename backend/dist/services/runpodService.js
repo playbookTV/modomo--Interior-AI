@@ -55,7 +55,7 @@ class RunPodService {
             console.error('❌ RunPod job submission failed:', error);
             await supabaseService_1.supabaseService.updateMakeover(makeoverData.makeover_id, {
                 status: 'failed',
-                error_message: error.message || 'RunPod job submission failed'
+                error_message: error instanceof Error ? error.message : 'RunPod job submission failed'
             });
             throw error;
         }

@@ -19,13 +19,27 @@ const upload = (0, multer_1.default)({
         fileSize: 50 * 1024 * 1024,
         files: 1
     },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
+    fileFilter: (_req, file, cb) => {
+        const allowedMimeTypes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/webp',
+            'image/heic',
+            'image/heif'
+        ];
+        const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+        if (!allowedMimeTypes.includes(file.mimetype.toLowerCase())) {
+            return cb(new Error(`Invalid file type: ${file.mimetype}. Only images are allowed.`), false);
         }
-        else {
-            cb(new Error('Only image files are allowed'), false);
+        const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+        if (!allowedExtensions.includes(fileExtension)) {
+            return cb(new Error(`Invalid file extension: ${fileExtension}. Only image files are allowed.`), false);
         }
+        if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+            return cb(new Error('Invalid filename: path traversal characters not allowed'), false);
+        }
+        cb(null, true);
     }
 });
 router.post('/upload', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), upload.single('photo'), async (req, res) => {
@@ -38,7 +52,46 @@ router.post('/upload', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), upload.s
             });
         }
         const { userId } = req.auth;
-        const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
+        let metadata = {};
+        if (req.body.metadata) {
+            try {
+                const parsedMetadata = JSON.parse(req.body.metadata);
+                if (typeof parsedMetadata === 'object' && parsedMetadata !== null && !Array.isArray(parsedMetadata)) {
+                    metadata = parsedMetadata;
+                }
+                else {
+                    console.warn('Invalid metadata format, using default');
+                }
+            }
+            catch (error) {
+                console.error('Failed to parse metadata JSON:', error);
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid metadata JSON format',
+                    code: 'INVALID_METADATA'
+                });
+            }
+        }
+        const file = req.file;
+        if (file.size < 1024) {
+            return res.status(400).json({
+                success: false,
+                error: 'File too small - may be corrupted',
+                code: 'FILE_TOO_SMALL'
+            });
+        }
+        const fileHeader = file.buffer.subarray(0, 12);
+        const isValidImage = (fileHeader[0] === 0xFF && fileHeader[1] === 0xD8 && fileHeader[2] === 0xFF) ||
+            (fileHeader[0] === 0x89 && fileHeader[1] === 0x50 && fileHeader[2] === 0x4E && fileHeader[3] === 0x47) ||
+            (fileHeader[0] === 0x52 && fileHeader[1] === 0x49 && fileHeader[2] === 0x46 && fileHeader[3] === 0x46 &&
+                fileHeader[8] === 0x57 && fileHeader[9] === 0x45 && fileHeader[10] === 0x42 && fileHeader[11] === 0x50);
+        if (!isValidImage) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid image file - content does not match expected format',
+                code: 'INVALID_IMAGE_CONTENT'
+            });
+        }
         console.log(`📸 Processing photo upload for user: ${userId}`);
         await supabaseService.createOrUpdateUser(userId, req.auth.emailAddress);
         const uploadResult = await r2Service.uploadPhoto(req.file.buffer, req.file.originalname, userId);
@@ -79,7 +132,7 @@ router.post('/upload', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), upload.s
                 console.error('RunPod job submission failed:', error);
             });
         }
-        res.json({
+        return res.json({
             success: true,
             data: {
                 id: photoRecord.id,
@@ -99,10 +152,10 @@ router.post('/upload', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), upload.s
     }
     catch (error) {
         console.error('❌ Photo upload failed:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Upload failed',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'UPLOAD_ERROR'
         });
     }
@@ -113,7 +166,7 @@ router.get('/', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
         const photos = await supabaseService.getUserPhotos(userId, limit, offset);
-        res.json({
+        return res.json({
             success: true,
             data: photos,
             count: photos.length,
@@ -126,10 +179,10 @@ router.get('/', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res
     }
     catch (error) {
         console.error('❌ Failed to fetch photos:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to fetch photos',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'FETCH_ERROR'
         });
     }
@@ -165,17 +218,17 @@ router.get('/:photoId', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (
                 code: 'NOT_FOUND'
             });
         }
-        res.json({
+        return res.json({
             success: true,
             data: photos[0]
         });
     }
     catch (error) {
         console.error('❌ Failed to get photo:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to get photo',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'GET_ERROR'
         });
     }
@@ -214,17 +267,17 @@ router.delete('/:photoId', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), asyn
             .eq('clerk_user_id', userId);
         if (deleteError)
             throw deleteError;
-        res.json({
+        return res.json({
             success: true,
             message: 'Photo deleted successfully'
         });
     }
     catch (error) {
         console.error('❌ Failed to delete photo:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to delete photo',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'DELETE_ERROR'
         });
     }
@@ -232,7 +285,7 @@ router.delete('/:photoId', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), asyn
 router.post('/signed-url', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res) => {
     try {
         const { userId } = req.auth;
-        const { originalName, contentType } = req.body;
+        const { originalName, contentType: _contentType } = req.body;
         if (!originalName) {
             return res.status(400).json({
                 success: false,
@@ -241,28 +294,28 @@ router.post('/signed-url', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), asyn
             });
         }
         const signedUrlData = await r2Service.getSignedUploadUrl(userId, originalName);
-        res.json({
+        return res.json({
             success: true,
             data: signedUrlData
         });
     }
     catch (error) {
         console.error('❌ Failed to generate signed URL:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to generate upload URL',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'SIGNED_URL_ERROR'
         });
     }
 });
-router.get('/health', async (req, res) => {
+router.get('/health', async (_req, res) => {
     try {
         const r2Health = await r2Service.healthCheck();
         const supabaseHealth = await supabaseService.healthCheck();
         const runpodHealth = await runpodService.healthCheck();
         const overall = r2Health && supabaseHealth && runpodHealth;
-        res.json({
+        return res.json({
             success: true,
             status: overall ? 'healthy' : 'degraded',
             services: {
@@ -275,10 +328,10 @@ router.get('/health', async (req, res) => {
     }
     catch (error) {
         console.error('❌ Health check failed:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             status: 'unhealthy',
-            error: error.message
+            error: error instanceof Error ? error.message : String(error)
         });
     }
 });

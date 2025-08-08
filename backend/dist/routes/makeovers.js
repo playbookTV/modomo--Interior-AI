@@ -4,12 +4,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const crypto_1 = __importDefault(require("crypto"));
 const supabaseService_1 = require("../services/supabaseService");
 const runpodService_1 = require("../services/runpodService");
 const clerk_sdk_node_1 = require("@clerk/clerk-sdk-node");
 const router = express_1.default.Router();
 const supabaseService = new supabaseService_1.SupabaseService();
 const runpodService = new runpodService_1.RunPodService();
+function verifyWebhookSignature(payload, signature, secret) {
+    if (!secret) {
+        console.warn('⚠️ No webhook secret configured - skipping signature verification');
+        return true;
+    }
+    try {
+        const expectedSignature = crypto_1.default
+            .createHmac('sha256', secret)
+            .update(payload)
+            .digest('hex');
+        const providedSignature = signature.replace('sha256=', '');
+        return crypto_1.default.timingSafeEqual(Buffer.from(expectedSignature, 'hex'), Buffer.from(providedSignature, 'hex'));
+    }
+    catch (error) {
+        console.error('❌ Webhook signature verification failed:', error);
+        return false;
+    }
+}
 router.get('/:makeoverId', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res) => {
     try {
         const { userId } = req.auth;
@@ -22,17 +41,17 @@ router.get('/:makeoverId', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), asyn
                 code: 'FORBIDDEN'
             });
         }
-        res.json({
+        return res.json({
             success: true,
             data: makeover
         });
     }
     catch (error) {
         console.error('❌ Failed to get makeover:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to get makeover',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'GET_ERROR'
         });
     }
@@ -72,7 +91,7 @@ router.post('/:makeoverId/retry', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(
             budget_range: makeover.budget_range,
             room_type: makeover.room_type
         });
-        res.json({
+        return res.json({
             success: true,
             data: {
                 makeover_id: makeoverId,
@@ -84,10 +103,10 @@ router.post('/:makeoverId/retry', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(
     }
     catch (error) {
         console.error('❌ Failed to retry makeover:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to retry makeover',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'RETRY_ERROR'
         });
     }
@@ -132,17 +151,17 @@ router.post('/:makeoverId/cancel', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)
             error_message: 'Cancelled by user',
             completed_at: new Date().toISOString()
         });
-        res.json({
+        return res.json({
             success: true,
             message: 'Makeover cancelled successfully'
         });
     }
     catch (error) {
         console.error('❌ Failed to cancel makeover:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to cancel makeover',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'CANCEL_ERROR'
         });
     }
@@ -175,7 +194,7 @@ router.get('/', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res
         const { data: makeovers, error } = await query;
         if (error)
             throw error;
-        res.json({
+        return res.json({
             success: true,
             data: makeovers || [],
             count: makeovers?.length || 0,
@@ -188,10 +207,10 @@ router.get('/', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res
     }
     catch (error) {
         console.error('❌ Failed to get makeover history:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to get makeover history',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'HISTORY_ERROR'
         });
     }
@@ -199,6 +218,16 @@ router.get('/', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req, res
 router.post('/callback', async (req, res) => {
     try {
         console.log('🔔 RunPod webhook received:', JSON.stringify(req.body, null, 2));
+        const signature = req.headers['x-signature'];
+        const webhookSecret = process.env.RUNPOD_WEBHOOK_SECRET;
+        const rawPayload = JSON.stringify(req.body);
+        if (!verifyWebhookSignature(rawPayload, signature || '', webhookSecret || '')) {
+            console.error('❌ Invalid webhook signature');
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid webhook signature'
+            });
+        }
         const payload = req.body;
         if (!payload.id) {
             return res.status(400).json({
@@ -210,17 +239,17 @@ router.post('/callback', async (req, res) => {
             .catch(error => {
             console.error('❌ Webhook handling failed:', error);
         });
-        res.json({
+        return res.json({
             success: true,
             message: 'Webhook received and processing'
         });
     }
     catch (error) {
         console.error('❌ Webhook callback failed:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Webhook processing failed',
-            message: error.message
+            message: error instanceof Error ? error.message : String(error)
         });
     }
 });
@@ -260,7 +289,7 @@ router.post('/:makeoverId/check-status', (0, clerk_sdk_node_1.ClerkExpressRequir
         if (jobStatus.status === 'COMPLETED' && makeover.status !== 'completed') {
             await runpodService.handleWebhookCallback(jobStatus);
         }
-        res.json({
+        return res.json({
             success: true,
             data: {
                 makeover_id: makeoverId,
@@ -272,10 +301,10 @@ router.post('/:makeoverId/check-status', (0, clerk_sdk_node_1.ClerkExpressRequir
     }
     catch (error) {
         console.error('❌ Failed to check job status:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to check job status',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'STATUS_CHECK_ERROR'
         });
     }
@@ -294,7 +323,7 @@ router.get('/stats', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req
             return acc;
         }, {});
         const userStats = await supabaseService.getUserStats(userId);
-        res.json({
+        return res.json({
             success: true,
             data: {
                 total_makeovers: userStats.total_makeovers,
@@ -312,10 +341,10 @@ router.get('/stats', (0, clerk_sdk_node_1.ClerkExpressRequireAuth)(), async (req
     }
     catch (error) {
         console.error('❌ Failed to get makeover stats:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Failed to get makeover statistics',
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             code: 'STATS_ERROR'
         });
     }
