@@ -15,6 +15,7 @@ import { getDatasetStats, getCategoryStats, getActiveJobs } from '../api/client'
 import { StatCard } from '../components/StatCard'
 import { CategoryChart } from '../components/CategoryChart'
 import { JobsMonitor } from '../components/JobsMonitor'
+import { DatasetImporter } from '../components/DatasetImporter'
 
 export function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -87,6 +88,12 @@ export function Dashboard() {
           color="orange"
           subtitle="Detection confidence"
         />
+      </div>
+
+      {/* Dataset Import */}
+      <div className="bg-white rounded-xl p-8 shadow-sm border border-slate-200/60">
+        <h2 className="text-2xl font-bold text-slate-800 mb-6">Quick Dataset Import</h2>
+        <DatasetImporter />
       </div>
 
       {/* Action Cards */}

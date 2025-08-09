@@ -1,7 +1,7 @@
 """
-Modomo Dataset Scraper - Production Entry Point
+Modomo Dataset Scraper - Production Entry Point  
 This file automatically detects if running with minimal or full dependencies
-Updated with real Houzz scraping functionality
+Updated with real Houzz scraping functionality + Playwright browsers
 """
 
 import os
@@ -20,11 +20,11 @@ try:
     
     # If we get here, AI dependencies are working
     ai_mode_enabled = True
-    print(f"🤖 AI dependencies detected (transformers: {transformers_version}) - starting full mode")
+    print(f"🤖 AI dependencies detected (torch: {torch.__version__}, transformers: {transformers_version}) - starting full mode")
     
 except ImportError as e:
     print(f"💡 AI dependencies not available ({e}) - starting basic mode")
-    print("   This is normal for Railway deployment with minimal requirements")
+    print("   Fixed huggingface_hub compatibility - should work on next deploy")
 except Exception as e:
     print(f"⚠️ AI dependency issue ({e}) - falling back to basic mode")
 

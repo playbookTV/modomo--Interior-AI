@@ -14,6 +14,21 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libnspr4 \
+    libnss3 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libcairo2 \
+    libpango-1.0-0 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -35,6 +50,10 @@ RUN if [ "${AI_MODE}" = "full" ] || [ "${AI_MODE_BUILD}" = "full" ] ; then \
         echo "💡 Installing minimal dependencies..." && \
         pip install --no-cache-dir -r requirements-minimal.txt ; \
     fi
+
+# Install Playwright browsers for web scraping
+RUN python -m playwright install-deps && \
+    python -m playwright install chromium || echo "⚠️ Failed to install Playwright browsers"
 
 # Copy application code
 COPY . .

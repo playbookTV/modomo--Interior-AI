@@ -108,18 +108,26 @@ class HouzzCrawler:
         scenes = []
         
         try:
-            # Navigate to room type page
+            # Navigate to room type page with better handling
             room_url = f"{self.photos_url}{room_type}/"
-            await page.goto(room_url, wait_until='networkidle')
+            logger.info(f"Navigating to {room_url}")
             
-            # Wait for images to load
-            await page.wait_for_selector('img[data-testid="photo-grid-image"]', timeout=10000)
+            try:
+                await page.goto(room_url, wait_until='domcontentloaded', timeout=30000)
+                # Wait for JavaScript to settle
+                await asyncio.sleep(3)
+            except Exception as e:
+                logger.warning(f"Navigation timeout, continuing anyway: {e}")
+                # Try to continue anyway
+            
+            # Wait for page content to load - try multiple selectors
+            await self._wait_for_images(page)
             
             # Scroll to load more images
             await self._scroll_for_more_images(page, limit)
             
-            # Extract image data
-            image_elements = await page.query_selector_all('img[data-testid="photo-grid-image"]')
+            # Extract image data using fallback selectors
+            image_elements = await self._find_image_elements(page)
             
             for element in image_elements[:limit]:
                 if len(scenes) >= limit:
@@ -181,7 +189,7 @@ class HouzzCrawler:
             await asyncio.sleep(2)
             
             # Count current images
-            image_elements = await page.query_selector_all('img[data-testid="photo-grid-image"]')
+            image_elements = await self._find_image_elements(page)
             new_count = len(image_elements)
             
             if new_count == current_count:
@@ -191,6 +199,78 @@ class HouzzCrawler:
                 current_count = new_count
             
             logger.debug(f"Loaded {current_count} images, target: {target_count}")
+    
+    async def _wait_for_images(self, page):
+        """Wait for images to load using multiple fallback selectors"""
+        selectors_to_try = [
+            'img[data-testid="photo-grid-image"]',  # Original selector
+            'img[src*="st.hzcdn.com"]',  # Houzz CDN images
+            'img[loading="lazy"]',  # Lazy-loaded images
+            '.photo-grid img',  # Grid-based selector
+            '[data-space-id] img',  # Space ID container images
+            'img[alt*="room"], img[alt*="design"], img[alt*="interior"]',  # Alt text based
+            'main img, section img'  # Generic fallback
+        ]
+        
+        for selector in selectors_to_try:
+            try:
+                await page.wait_for_selector(selector, timeout=8000)
+                logger.info(f"Found images using selector: {selector}")
+                return
+            except Exception:
+                logger.debug(f"Selector failed: {selector}")
+                continue
+        
+        # Last resort - wait for any image
+        try:
+            await page.wait_for_selector('img', timeout=5000)
+            logger.warning("Using generic img selector as fallback")
+        except Exception:
+            logger.error("No images found with any selector")
+    
+    async def _find_image_elements(self, page):
+        """Find image elements using multiple fallback selectors"""
+        selectors_to_try = [
+            'img[data-testid="photo-grid-image"]',
+            'img[src*="st.hzcdn.com"]',
+            'img[loading="lazy"]',
+            '.photo-grid img',
+            '[data-space-id] img',
+            'main img[src*="houzz"], section img[src*="houzz"]',
+            'img[alt*="room"], img[alt*="design"], img[alt*="interior"]'
+        ]
+        
+        for selector in selectors_to_try:
+            try:
+                elements = await page.query_selector_all(selector)
+                if elements:
+                    logger.info(f"Found {len(elements)} images with selector: {selector}")
+                    return elements
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+        
+        # Generic fallback
+        try:
+            elements = await page.query_selector_all('img[src]')
+            # Filter for likely room/design images
+            filtered_elements = []
+            for elem in elements:
+                src = await elem.get_attribute('src')
+                alt = await elem.get_attribute('alt') or ""
+                if src and ('houzz' in src.lower() or 'room' in alt.lower() or 'design' in alt.lower()):
+                    filtered_elements.append(elem)
+            
+            if filtered_elements:
+                logger.info(f"Found {len(filtered_elements)} filtered images using fallback")
+                return filtered_elements
+            
+            logger.warning(f"Using all {len(elements)} images as last resort")
+            return elements[:50]  # Limit to prevent overload
+            
+        except Exception as e:
+            logger.error(f"All image selectors failed: {e}")
+            return []
     
     async def _enrich_scene_metadata(self, page, scene: SceneData, element):
         """Extract additional metadata like style and color tags"""
