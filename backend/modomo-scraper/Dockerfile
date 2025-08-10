@@ -37,19 +37,17 @@ WORKDIR /app
 # Copy requirements files
 COPY requirements-minimal.txt requirements-full.txt requirements-ai-stable.txt ./
 
-# Install dependencies based on environment variable or build arg
-ARG AI_MODE=basic
+# Always use full AI mode for production
+ARG AI_MODE=full
 ENV AI_MODE_BUILD=${AI_MODE}
+ENV AI_MODE=full
 
-# Install dependencies with better error handling
-RUN if [ "${AI_MODE}" = "full" ] || [ "${AI_MODE_BUILD}" = "full" ] ; then \
-        echo "🤖 Installing stable AI dependencies..." && \
-        pip install --no-cache-dir -r requirements-ai-stable.txt || \
-        (echo "❌ AI installation failed, falling back to minimal" && pip install --no-cache-dir -r requirements-minimal.txt) ; \
-    else \
-        echo "💡 Installing minimal dependencies..." && \
-        pip install --no-cache-dir -r requirements-minimal.txt ; \
-    fi
+# Always install AI dependencies - no fallback to minimal
+RUN echo "🤖 Installing stable AI dependencies for production..." && \
+    pip install --upgrade pip && \
+    pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements-ai-stable.txt && \
+    echo "✅ AI dependencies installed successfully"
 
 # Install Playwright browsers for web scraping
 RUN python -m playwright install-deps && \

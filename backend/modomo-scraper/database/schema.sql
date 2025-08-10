@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS scenes (
     houzz_id VARCHAR(255) UNIQUE NOT NULL,
     image_url TEXT NOT NULL,
     image_r2_key TEXT, -- R2 storage key for downloaded image
+    image_type VARCHAR(20) DEFAULT 'scene' CHECK (image_type IN ('scene', 'object', 'product', 'hybrid')),
+    is_primary_object BOOLEAN DEFAULT false, -- true for object-only images
+    primary_category VARCHAR(100), -- main object category for object-only images
     room_type VARCHAR(100),
     style_tags TEXT[] DEFAULT '{}',
     color_tags TEXT[] DEFAULT '{}',
@@ -32,6 +35,9 @@ CREATE TABLE IF NOT EXISTS scenes (
 -- Create indexes for scenes
 CREATE INDEX IF NOT EXISTS idx_scenes_status ON scenes(status);
 CREATE INDEX IF NOT EXISTS idx_scenes_room_type ON scenes(room_type);
+CREATE INDEX IF NOT EXISTS idx_scenes_image_type ON scenes(image_type);
+CREATE INDEX IF NOT EXISTS idx_scenes_is_primary_object ON scenes(is_primary_object) WHERE is_primary_object = true;
+CREATE INDEX IF NOT EXISTS idx_scenes_primary_category ON scenes(primary_category);
 CREATE INDEX IF NOT EXISTS idx_scenes_created_at ON scenes(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scenes_houzz_id ON scenes(houzz_id);
 

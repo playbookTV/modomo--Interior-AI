@@ -26,12 +26,13 @@ const PRESET_DATASETS = [
 ]
 
 async function importDataset(params: {
+  dataset: string
   offset: number
   limit: number
   include_detection: boolean
 }): Promise<ImportJob> {
   const response = await fetch(
-    `https://ovalay-recruitment-production.up.railway.app/import/huggingface-dataset?offset=${params.offset}&limit=${params.limit}&include_detection=${params.include_detection}`,
+    `https://ovalay-recruitment-production.up.railway.app/import/huggingface-dataset?dataset=${encodeURIComponent(params.dataset)}&offset=${params.offset}&limit=${params.limit}&include_detection=${params.include_detection}`,
     { method: 'POST' }
   )
   if (!response.ok) throw new Error('Import failed')
@@ -109,6 +110,7 @@ export function DatasetImporter() {
 
   const handleImport = () => {
     importMutation.mutate({
+      dataset: datasetUrl,
       offset,
       limit,
       include_detection: includeDetection

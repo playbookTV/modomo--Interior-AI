@@ -35,34 +35,41 @@ def check_ai_dependencies():
         return False
 
 def get_app():
-    """Get the appropriate app based on available dependencies"""
+    """Get the appropriate app - always full AI mode for production"""
     
-    # Check environment variable first
-    ai_mode = os.getenv("AI_MODE", "basic").lower()
-    force_ai = ai_mode == "full"
-    
+    # Force full AI mode for production
+    ai_mode = os.getenv("AI_MODE", "full").lower()
     print(f"🔍 AI_MODE environment variable: {ai_mode}")
     
     # Check if AI dependencies are available
     ai_available = check_ai_dependencies()
     print(f"🤖 AI dependencies available: {ai_available}")
     
-    # Decide which app to use
-    if force_ai and ai_available:
-        try:
-            print("🚀 Loading full AI mode...")
-            from main_full import app
-            print("✅ Full AI mode loaded successfully")
-            return app
-        except Exception as e:
-            print(f"❌ Failed to load AI mode: {e}")
-            print("🔄 Falling back to basic mode")
+    # Always try to load full AI mode first
+    try:
+        print("🚀 Loading full AI mode...")
+        from main_full import app
+        print("✅ Full AI mode loaded successfully")
+        return app
+    except Exception as e:
+        print(f"❌ Failed to load full AI mode: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # If AI dependencies are missing, this is a build error
+        if not ai_available:
+            print("💥 CRITICAL: AI dependencies missing in production build!")
+            print("🔧 Check Dockerfile and requirements-ai-stable.txt")
+            # Still try basic mode but warn loudly
             
-    # Load basic mode
-    print("💡 Loading basic mode...")
-    from main_basic import app
-    print("✅ Basic mode loaded successfully")
-    return app
+        print("🔄 Falling back to basic mode (NOT RECOMMENDED FOR PRODUCTION)")
+        try:
+            from main_basic import app
+            print("⚠️ Basic mode loaded - LIMITED FUNCTIONALITY")
+            return app
+        except Exception as basic_error:
+            print(f"💥 FATAL: Even basic mode failed: {basic_error}")
+            raise
 
 # Get the app instance
 app = get_app()

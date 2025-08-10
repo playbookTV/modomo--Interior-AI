@@ -291,6 +291,69 @@ export function ReviewInterface({
           </div>
         )}
         
+        {/* Color Display */}
+        {currentObject.metadata?.colors && (
+          <div className="mb-4">
+            <p className="text-sm font-medium text-gray-700 mb-2">Colors:</p>
+            
+            {/* Dominant Color */}
+            {currentObject.metadata.colors.dominant_color && (
+              <div className="mb-3">
+                <p className="text-xs text-gray-600 mb-1">Dominant:</p>
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="w-8 h-8 rounded border border-gray-300 shadow-sm"
+                    style={{ backgroundColor: currentObject.metadata.colors.dominant_color.hex }}
+                    title={`${currentObject.metadata.colors.dominant_color.name} (${currentObject.metadata.colors.dominant_color.hex})`}
+                  />
+                  <div>
+                    <p className="text-sm font-medium capitalize">{currentObject.metadata.colors.dominant_color.name}</p>
+                    <p className="text-xs text-gray-500">{currentObject.metadata.colors.dominant_color.hex}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Color Palette */}
+            {currentObject.metadata.colors.colors && currentObject.metadata.colors.colors.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-600 mb-2">Color Palette:</p>
+                <div className="flex flex-wrap gap-2">
+                  {currentObject.metadata.colors.colors.slice(0, 5).map((color, index) => (
+                    <div 
+                      key={index}
+                      className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs"
+                      title={`${color.name} (${color.hex}) - ${color.percentage}%`}
+                    >
+                      <div 
+                        className="w-4 h-4 rounded border border-gray-300"
+                        style={{ backgroundColor: color.hex }}
+                      />
+                      <span className="capitalize">{color.name}</span>
+                      <span className="text-gray-500">({color.percentage}%)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Color Properties */}
+            {currentObject.metadata.colors.properties && (
+              <div className="mt-2 text-xs text-gray-600">
+                <span>Brightness: {(currentObject.metadata.colors.properties.brightness * 100).toFixed(0)}%</span>
+                {currentObject.metadata.colors.properties.color_temperature && (
+                  <span className="ml-3 capitalize">
+                    Tone: {currentObject.metadata.colors.properties.color_temperature}
+                  </span>
+                )}
+                {currentObject.metadata.colors.properties.is_neutral && (
+                  <span className="ml-3 px-1 bg-gray-200 rounded">Neutral</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        
         {/* Action Buttons */}
         <div className="flex justify-between items-center">
           <div className="flex gap-2">

@@ -226,3 +226,140 @@ class CLIPEmbedder:
             processed_descriptions.append(processed_desc)
         
         return await self.embed_text_batch(processed_descriptions)
+    
+    async def embed_color_query(self, query: str) -> List[float]:
+        """
+        Generate CLIP embedding optimized for color-based furniture queries
+        
+        Args:
+            query: Color-based query like "red sofa" or "blue curtains"
+            
+        Returns:
+            Normalized CLIP embedding for the query
+        """
+        # Enhance query with furniture context for better matching
+        enhanced_query = f"furniture item that is {query}"
+        return await self.embed_text(enhanced_query)
+    
+    async def search_objects_by_color(self, color_query: str, object_embeddings: List[List[float]], 
+                                    object_ids: List[str], threshold: float = 0.3, 
+                                    limit: int = 10) -> List[dict]:
+        """
+        Search for objects matching a color-based query using CLIP embeddings
+        
+        Args:
+            color_query: Color-based search query (e.g., "red sofa", "dark wood table")
+            object_embeddings: List of object CLIP embeddings
+            object_ids: Corresponding object IDs
+            threshold: Minimum similarity threshold
+            limit: Maximum results to return
+            
+        Returns:
+            List of matching objects with similarity scores
+        """
+        try:
+            # Generate query embedding
+            query_embedding = await self.embed_color_query(color_query)
+            
+            if not query_embedding:
+                return []
+            
+            # Calculate similarities
+            matches = []
+            for obj_id, obj_embedding in zip(object_ids, object_embeddings):
+                if obj_embedding:  # Skip empty embeddings
+                    similarity = self.calculate_similarity(query_embedding, obj_embedding)
+                    if similarity >= threshold:
+                        matches.append({
+                            'object_id': obj_id,
+                            'similarity': similarity,
+                            'query': color_query
+                        })
+            
+            # Sort by similarity (descending) and limit results
+            matches.sort(key=lambda x: x['similarity'], reverse=True)
+            return matches[:limit]
+            
+        except Exception as e:
+            logger.error(f"Color-based search failed for query '{color_query}'", error=str(e))
+            return []
+    
+    def generate_color_search_queries(self, colors: List[str], categories: List[str] = None) -> List[str]:
+        """
+        Generate comprehensive search queries for color + furniture combinations
+        
+        Args:
+            colors: List of color names
+            categories: Optional list of furniture categories
+            
+        Returns:
+            List of search query strings
+        """
+        if not categories:
+            categories = [
+                "sofa", "chair", "table", "lamp", "rug", "curtains", 
+                "cabinet", "bookshelf", "bed", "dresser"
+            ]
+        
+        queries = []
+        
+        # Basic color + category combinations
+        for color in colors:
+            for category in categories:
+                queries.extend([
+                    f"{color} {category}",
+                    f"{category} in {color}",
+                    f"{color} colored {category}"
+                ])
+        
+        # Color-only queries
+        for color in colors:
+            queries.extend([
+                f"{color} furniture",
+                f"furniture in {color}",
+                f"{color} items"
+            ])
+        
+        # Descriptive color queries
+        color_descriptors = {
+            "red": ["burgundy", "crimson", "cherry red"],
+            "blue": ["navy blue", "sky blue", "royal blue"],
+            "green": ["forest green", "sage green", "mint green"],
+            "brown": ["dark brown", "light brown", "chocolate brown"],
+            "white": ["off white", "cream", "ivory"],
+            "black": ["charcoal", "dark gray", "jet black"],
+            "gray": ["light gray", "dark gray", "silver"],
+            "yellow": ["golden", "pale yellow", "bright yellow"]
+        }
+        
+        for color in colors:
+            if color in color_descriptors:
+                for descriptor in color_descriptors[color]:
+                    queries.append(f"{descriptor} furniture")
+        
+        return queries
+    
+    async def batch_color_search(self, queries: List[str], object_embeddings: List[List[float]], 
+                                object_ids: List[str], threshold: float = 0.3) -> Dict[str, List[dict]]:
+        """
+        Perform batch color-based searches for multiple queries
+        
+        Args:
+            queries: List of search query strings
+            object_embeddings: List of object CLIP embeddings
+            object_ids: Corresponding object IDs
+            threshold: Minimum similarity threshold
+            
+        Returns:
+            Dictionary mapping queries to their search results
+        """
+        results = {}
+        
+        for query in queries:
+            matches = await self.search_objects_by_color(
+                query, object_embeddings, object_ids, threshold
+            )
+            if matches:  # Only store non-empty results
+                results[query] = matches
+        
+        return results

@@ -7,6 +7,7 @@ import { ReviewQueue } from './pages/ReviewQueue'
 import { SceneDetail } from './pages/SceneDetail'
 import { DatasetExport } from './pages/DatasetExport'
 import { Analytics } from './pages/Analytics'
+import { Colors } from './pages/Colors'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/scene/:sceneId" element={<SceneDetail />} />
               <Route path="/export" element={<DatasetExport />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/colors" element={<Colors />} />
             </Routes>
           </main>
         </div>
