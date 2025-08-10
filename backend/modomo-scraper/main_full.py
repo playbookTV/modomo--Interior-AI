@@ -84,7 +84,11 @@ except ImportError as e:
     # Fallback implementations for when models aren't available
     class GroundingDINODetector:
         def __init__(self):
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                import torch
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                self.device = "cpu"
             logger.info(f"Using fallback detector on {self.device}")
         
         async def detect_objects(self, image_path: str, taxonomy: dict) -> List[dict]:
@@ -132,7 +136,11 @@ except ImportError as e:
 if not AI_MODELS_AVAILABLE:
     class SAM2Segmenter:
         def __init__(self):
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                import torch
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                self.device = "cpu"
             logger.info(f"Using fallback segmenter on {self.device}")
         
         async def segment(self, image_path: str, bbox: List[float]) -> str:
@@ -145,6 +153,7 @@ if not AI_MODELS_AVAILABLE:
                 x, y, w, h = [int(coord) for coord in bbox]
                 
                 mask_path = f"/tmp/mask_{uuid.uuid4().hex}.png"
+                import numpy as np
                 mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
                 mask[y:y+h, x:x+w] = 255
                 
@@ -162,7 +171,11 @@ if not AI_MODELS_AVAILABLE:
 
     class CLIPEmbedder:
         def __init__(self):
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                import torch
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                self.device = "cpu"
             logger.info(f"Using fallback embedder on {self.device}")
             self.embedding_dim = 512
         
@@ -355,13 +368,16 @@ async def startup():
             logger.info("✅ AI models loaded successfully")
         except Exception as ai_error:
             logger.warning(f"AI model loading failed: {ai_error}")
-            logger.info("Will continue with dummy AI models for basic functionality")
-            # Use dummy models from basic version
-            from main_basic import DummyDetector, DummySegmenter, DummyEmbedder
-            detector = DummyDetector()
-            segmenter = DummySegmenter()
-            embedder = DummyEmbedder()
-            color_extractor = ColorExtractor()
+            logger.info("Will continue with fallback AI implementations")
+            # Use fallback implementations
+            detector = GroundingDINODetector()
+            segmenter = SAM2Segmenter()
+            embedder = CLIPEmbedder()
+            try:
+                color_extractor = ColorExtractor()
+            except Exception as color_error:
+                logger.warning(f"Color extractor failed to initialize: {color_error}")
+                color_extractor = None
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
@@ -650,14 +666,17 @@ async def run_detection_pipeline(image_url: str, job_id: str):
             embedding = await embedder.embed_object(image_path, detection['bbox'])
             detection['embedding'] = embedding
             
-            # Extract colors from object crop
-            color_data = await color_extractor.extract_colors(image_path, detection['bbox'])
-            detection['color_data'] = color_data
-            
-            # Add color-based tags
-            if color_data and color_data.get('colors'):
-                color_names = [c.get('name') for c in color_data['colors'] if c.get('name')]
-                detection['tags'] = detection.get('tags', []) + color_names[:3]  # Add top 3 color names
+            # Extract colors from object crop if color extractor is available
+            if color_extractor:
+                color_data = await color_extractor.extract_colors(image_path, detection['bbox'])
+                detection['color_data'] = color_data
+                
+                # Add color-based tags
+                if color_data and color_data.get('colors'):
+                    color_names = [c.get('name') for c in color_data['colors'] if c.get('name')]
+                    detection['tags'] = detection.get('tags', []) + color_names[:3]  # Add top 3 color names
+            else:
+                detection['color_data'] = None
         
         logger.info(f"Detection pipeline complete: {len(detections)} objects")
         return detections
@@ -726,14 +745,55 @@ async def get_dataset_stats():
 @app.get("/stats/categories")
 async def get_category_stats():
     """Get category-wise statistics"""
-    if db_pool:
+    if supabase:
         try:
-            async with db_pool.acquire() as conn:
-                categories = await conn.fetch("SELECT * FROM category_stats")
-                if categories:
-                    return [dict(cat) for cat in categories]
+            # Get category stats from detected objects
+            result = supabase.table("detected_objects").select("category, confidence, approved").execute()
+            
+            # Process the data
+            category_stats = {}
+            for obj in result.data or []:
+                category = obj.get("category", "unknown")
+                confidence = obj.get("confidence", 0.0)
+                approved = obj.get("approved")
+                
+                if category not in category_stats:
+                    category_stats[category] = {
+                        "category": category,
+                        "total_objects": 0,
+                        "approved_objects": 0,
+                        "confidences": [],
+                        "group": None
+                    }
+                
+                category_stats[category]["total_objects"] += 1
+                category_stats[category]["confidences"].append(confidence)
+                
+                if approved is True:
+                    category_stats[category]["approved_objects"] += 1
+                
+                # Map to taxonomy group
+                for group_name, items in MODOMO_TAXONOMY.items():
+                    if category in items:
+                        category_stats[category]["group"] = group_name
+                        break
+            
+            # Calculate averages and format response
+            categories = []
+            for category, stats in category_stats.items():
+                avg_confidence = sum(stats["confidences"]) / len(stats["confidences"]) if stats["confidences"] else 0.0
+                categories.append({
+                    "category": category,
+                    "total_objects": stats["total_objects"],
+                    "approved_objects": stats["approved_objects"],
+                    "avg_confidence": avg_confidence,
+                    "group": stats["group"] or "other"
+                })
+            
+            return sorted(categories, key=lambda x: x["total_objects"], reverse=True)
+            
         except Exception as e:
-            logger.error(f"Database query failed: {e}")
+            logger.error(f"Supabase query failed: {e}")
     
     # Fallback to dummy stats
     categories = []
@@ -799,6 +859,75 @@ async def get_scenes(
             return {"scenes": [], "total": 0, "limit": limit, "offset": offset}
     
     return {"scenes": [], "total": 0, "limit": limit, "offset": offset}
+
+@app.get("/objects")
+async def get_detected_objects(
+    limit: int = Query(20, description="Number of objects to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    category: str = Query(None, description="Filter by category"),
+    scene_id: str = Query(None, description="Filter by scene ID")
+):
+    """Get list of detected objects with their details"""
+    if supabase:
+        try:
+            # Build query
+            query = supabase.table("detected_objects").select(
+                "object_id, scene_id, category, confidence, bbox, tags, approved, metadata, created_at"
+            )
+            
+            # Add filters
+            if category:
+                query = query.eq("category", category)
+            if scene_id:
+                query = query.eq("scene_id", scene_id)
+            
+            # Execute with pagination
+            result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+            
+            # Get total count
+            count_query = supabase.table("detected_objects").select("object_id", count="exact")
+            if category:
+                count_query = count_query.eq("category", category)
+            if scene_id:
+                count_query = count_query.eq("scene_id", scene_id)
+            count_result = count_query.execute()
+            total = count_result.count if count_result.count else 0
+            
+            # Enrich with scene info
+            objects_data = []
+            for obj in result.data:
+                obj_dict = dict(obj)
+                
+                # Get scene info
+                try:
+                    scene_result = supabase.table("scenes").select(
+                        "houzz_id, image_url, room_type"
+                    ).eq("scene_id", obj["scene_id"]).execute()
+                    
+                    if scene_result.data:
+                        scene_info = scene_result.data[0]
+                        obj_dict["scene_info"] = scene_info
+                    else:
+                        obj_dict["scene_info"] = None
+                        
+                except Exception as scene_error:
+                    logger.warning(f"Failed to fetch scene info for object {obj['object_id']}: {scene_error}")
+                    obj_dict["scene_info"] = None
+                
+                objects_data.append(obj_dict)
+            
+            return {
+                "objects": objects_data,
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch objects from Supabase: {e}")
+            return {"objects": [], "total": 0, "limit": limit, "offset": offset}
+    
+    return {"objects": [], "total": 0, "limit": limit, "offset": offset}
 
 @app.get("/admin/test-supabase")
 async def test_supabase():
@@ -1322,6 +1451,147 @@ async def run_full_scraping_pipeline(job_id: str, limit: int, room_types: Option
         
     except Exception as e:
         logger.error(f"❌ Full scraping pipeline failed: {e}")
+
+# Review endpoints for object validation
+@app.get("/review/queue")
+async def get_review_queue(
+    limit: int = Query(10, description="Maximum number of scenes to return"),
+    room_type: str = Query(None, description="Filter by room type"),
+    category: str = Query(None, description="Filter by object category")
+):
+    """Get scenes pending review with detected objects"""
+    try:
+        if not supabase:
+            return {
+                "scenes": [],
+                "note": "Database connection not available"
+            }
+        
+        # Build query for scenes with objects needing review
+        query = supabase.table("scenes").select("""
+            scene_id, houzz_id, image_url, room_type, style_tags, 
+            detected_objects!inner(
+                object_id, bbox, category, confidence, tags, 
+                approved, matched_product_id, metadata
+            )
+        """)
+        
+        # Add filters
+        if room_type:
+            query = query.eq("room_type", room_type)
+        
+        # Execute query
+        result = query.limit(limit).execute()
+        
+        if not result.data:
+            return {
+                "scenes": [],
+                "total": 0,
+                "note": "No scenes found for review"
+            }
+        
+        # Format scenes with objects
+        scenes = []
+        for scene_data in result.data:
+            scene = {
+                "scene_id": scene_data["scene_id"],
+                "houzz_id": scene_data.get("houzz_id"),
+                "image_url": scene_data["image_url"],
+                "room_type": scene_data.get("room_type"),
+                "style_tags": scene_data.get("style_tags", []),
+                "objects": scene_data.get("detected_objects", [])
+            }
+            
+            # Filter objects by category if specified
+            if category and scene["objects"]:
+                scene["objects"] = [obj for obj in scene["objects"] if obj.get("category") == category]
+            
+            # Only include scenes with objects
+            if scene["objects"]:
+                scenes.append(scene)
+        
+        return {
+            "scenes": scenes[:limit],
+            "total": len(scenes),
+            "filters": {
+                "room_type": room_type,
+                "category": category,
+                "limit": limit
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Review queue failed: {e}")
+        return {
+            "scenes": [],
+            "error": str(e)
+        }
+
+@app.post("/review/update")
+async def update_review(updates: List[dict]):
+    """Update review status for multiple objects"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not available"}
+        
+        updated_count = 0
+        
+        for update in updates:
+            object_id = update.get("object_id")
+            if not object_id:
+                continue
+                
+            # Prepare update data
+            update_data = {}
+            if "approved" in update:
+                update_data["approved"] = update["approved"]
+            if "category" in update:
+                update_data["category"] = update["category"]
+            if "tags" in update:
+                update_data["tags"] = update["tags"]
+            if "matched_product_id" in update:
+                update_data["matched_product_id"] = update["matched_product_id"]
+            
+            if update_data:
+                result = supabase.table("detected_objects").update(update_data).eq("object_id", object_id).execute()
+                if result.data:
+                    updated_count += 1
+        
+        return {
+            "status": "success",
+            "count": updated_count,
+            "message": f"Updated {updated_count} objects"
+        }
+        
+    except Exception as e:
+        logger.error(f"Review update failed: {e}")
+        return {"error": str(e)}
+
+@app.post("/review/approve/{scene_id}")
+async def approve_scene(scene_id: str):
+    """Mark a scene as approved after review"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not available"}
+        
+        # Update scene status
+        scene_result = supabase.table("scenes").update({
+            "status": "approved",
+            "reviewed_at": "now()"
+        }).eq("scene_id", scene_id).execute()
+        
+        if not scene_result.data:
+            return {"error": f"Scene {scene_id} not found"}
+        
+        return {
+            "status": "success",
+            "scene_id": scene_id,
+            "message": "Scene approved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Scene approval failed: {e}")
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

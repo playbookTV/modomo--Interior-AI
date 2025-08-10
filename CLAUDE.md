@@ -109,7 +109,7 @@ pnpm run db:seed
 - **UI Framework**: BNA UI (Ahmedbna) with comprehensive theming system
 - **Backend**: Node.js 18+, Express, TypeScript, Supabase integration
 - **Cloud**: Railway hosting, Cloudflare R2 storage, Supabase database
-- **AI**: Python 3.11+, FastAPI, Stable Diffusion XL, SAM2, Depth-Anything-V2
+- **AI**: Python 3.11+, FastAPI, Stable Diffusion XL, SAM2, Depth-Anything-V2, CLIP embeddings, Playwright scraping
 - **Databases**: PostgreSQL, Redis, Qdrant (vector DB)
 - **Storage**: MinIO (local dev), Cloudflare R2 (production)
 - **Package Manager**: pnpm 9.12.0 (required)
@@ -132,12 +132,20 @@ pnpm run db:seed
 - **✅ Compatible**: All dependencies aligned with Expo SDK 53 requirements
 - **🚧 Next**: Camera integration, API connections, screen implementations
 
+### Backend AI Service Status
+- **✅ Working**: Color extraction API, scene management endpoints, Houzz web scraping
+- **✅ Enhanced**: Full AI mode enforcement, robust error handling, Docker optimization
+- **✅ Implemented**: Playwright browser dependencies, CLIP embeddings, database schema
+- **✅ Production Ready**: Railway compatibility, health checks, fallback mechanisms
+- **🚧 Active**: Review dashboard with real-time monitoring, scraper improvements
+
 ### Service URLs (Development)
 - Mobile App: http://localhost:8081 (Expo DevTools) / QR Code for device testing
 - Cloud Backend: http://localhost:3000 (Unified Railway service)
 - Auth Service: http://localhost:3001 (Legacy - being migrated)
 - Photo Service: http://localhost:3002 (Legacy - being migrated)
-- AI Service: http://localhost:8000 (Python FastAPI)
+- AI Service: http://localhost:8000 (Python FastAPI) - **Enhanced with scraping capabilities**
+- Review Dashboard: Local monitoring interface for scraper status
 - MinIO Console: http://localhost:9001 (S3-compatible storage)
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379

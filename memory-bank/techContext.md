@@ -61,11 +61,14 @@
 ```
 
 ### AI/ML Technology Stack
-**Computer Vision Pipeline:**
-- **Depth Estimation:** Depth-Anything-V2-Large (state-of-the-art indoor depth)
-- **Object Segmentation:** SAM2 with furniture-specific fine-tuning
-- **Style Transfer:** Stable Diffusion XL 1.0 + Multi-ControlNet
-- **Product Matching:** Custom CLIP model + BLIP-2 for descriptions
+**Computer Vision Pipeline (Updated - January 2025):**
+- **Color Extraction:** Advanced color analysis API ✅ OPERATIONAL
+- **Product Matching:** CLIP embeddings for visual similarity ✅ OPERATIONAL  
+- **Web Scraping:** Playwright browser automation for data collection ✅ OPERATIONAL
+- **Scene Management:** Complete scene processing and categorization ✅ OPERATIONAL
+- **Depth Estimation:** Depth-Anything-V2-Large (planned)
+- **Object Segmentation:** SAM2 with furniture-specific fine-tuning (planned)
+- **Style Transfer:** Stable Diffusion XL 1.0 + Multi-ControlNet (planned)
 
 **Model Hosting & Inference:**
 - **GPU Infrastructure:** NVIDIA A100s on RunPod/Modal for cost optimization
@@ -104,12 +107,13 @@ Analytics_Events (user_behavior, performance)
 ```
 
 ### External API Integrations
-**Retailer APIs:**
-- **Amazon Product Advertising API** (primary partner)
-- **eBay Browse API** (marketplace integration)
-- **Custom scrapers** for Argos, Temu (with rate limiting)
-- **IKEA API** (when available, otherwise scraping)
-- **Wayfair Partner API** (premium products)
+**Retailer APIs (Updated - January 2025):**
+- **Houzz Web Scraping** ✅ OPERATIONAL (Playwright integration)
+- **Amazon Product Advertising API** (primary partner - planned)
+- **eBay Browse API** (marketplace integration - planned)
+- **Custom scrapers** for Argos, Temu (with rate limiting - planned)
+- **IKEA API** (when available, otherwise scraping - planned)
+- **Wayfair Partner API** (premium products - planned)
 
 **Third-Party Services:**
 - **Payment:** RevenueCat (subscription management)

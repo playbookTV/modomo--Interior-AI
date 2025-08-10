@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 import numpy as np
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 import structlog
 
 logger = structlog.get_logger()
