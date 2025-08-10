@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Feature Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .object-overlay {
+            position: absolute;
+            border: 2px solid #10b981;
+            background-color: rgba(16, 185, 129, 0.2);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <h1 class="text-3xl font-bold text-gray-900 mb-6">Review Feature Test</h1>
+        
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <h2 class="text-lg font-semibold text-yellow-800 mb-2">Current Status</h2>
+            <p class="text-yellow-700">• Database has <strong>58 scenes</strong> and <strong>22 detected objects</strong></p>
+            <p class="text-yellow-700">• Objects are ready for review (approved: null)</p>
+            <p class="text-yellow-700">• Review endpoints need to be deployed to production</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Sample Scene for Review -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold mb-4">Sample Scene: Living Room</h3>
+                <div class="relative mb-4">
+                    <img 
+                        id="scene-image"
+                        src="https://datasets-server.huggingface.co/cached-assets/sk2003/houzzdata/--/b8cb0e47decfd42dcb078f89d42107a8954b54b6/--/default/train/92/image/image.jpg?Expires=1754845783&Signature=gKP092mbIfD0pqs24ItBwHfgPD8snngyUIiEgholGAmel2joXiLP~uFhAKOeka7rtpSWSYaEDzooffq9TrYRXVfUZvZEOu8JO3GNQXBvcAQBxacFjLl6n2CHkv0uNyO7nxJ2QLZroTedcLMEbnFLmeCmPSemuR3CVrlV63wrX3w2rXfYDmJu8keeHD-wYuUlkkXcKgiYnpHG1k3OTN-tMaA-X7Ef2-4mCNguTrSYW15gr4AL-FY35laOmmou6E6iVk1Ouj9ie-a3QdNJH1ewDB2hc0sq1zHHGMfI8TsBZqyC-gW3-PvjqGHPfCiyeRIyUoblcz7OmuBMNjnHQrAG5Q__&Key-Pair-Id=K3EI6M078Z3AC3" 
+                        alt="Living room scene"
+                        class="w-full rounded"
+                        onload="drawBoundingBoxes()"
+                    />
+                    <div id="bounding-boxes"></div>
+                </div>
+                <p class="text-sm text-gray-600">Scene ID: hf_houzz_92</p>
+            </div>
+
+            <!-- Review Panel -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold mb-4">Review Panel</h3>
+                
+                <div class="space-y-4">
+                    <div id="object-list">
+                        <!-- Objects will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="mt-6 flex gap-2">
+                    <button onclick="approveObject()" class="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                        ✓ Approve Object
+                    </button>
+                    <button onclick="rejectObject()" class="flex-1 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                        ✗ Reject Object
+                    </button>
+                </div>
+                
+                <div class="mt-4 text-center">
+                    <button onclick="nextObject()" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+                        Next Object →
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Testing -->
+        <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold mb-4">API Test Results</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-green-50 border border-green-200 rounded p-4">
+                    <h4 class="font-medium text-green-800">✓ Scenes Available</h4>
+                    <p class="text-sm text-green-600">58 scenes ready</p>
+                </div>
+                <div class="bg-green-50 border border-green-200 rounded p-4">
+                    <h4 class="font-medium text-green-800">✓ Objects Detected</h4>
+                    <p class="text-sm text-green-600">22 objects with bboxes</p>
+                </div>
+                <div class="bg-red-50 border border-red-200 rounded p-4">
+                    <h4 class="font-medium text-red-800">✗ Review API</h4>
+                    <p class="text-sm text-red-600">Needs deployment</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample object data from the API response
+        const objects = [
+            {
+                object_id: "1917d9ba-ac88-493c-95bd-5c484cd1fb56",
+                category: "sofa",
+                confidence: 0.9982,
+                bbox: [1, 437, 322, 278],
+                approved: null
+            },
+            {
+                object_id: "0d0335a4-ec59-4d54-90aa-eab1c44efe55", 
+                category: "sofa",
+                confidence: 0.9663,
+                bbox: [447, 369, 181, 215],
+                approved: null
+            },
+            {
+                object_id: "5aeb803c-1511-4a0c-bf51-424279106669",
+                category: "armchair", 
+                confidence: 0.9885,
+                bbox: [448, 367, 183, 218],
+                approved: null
+            }
+        ];
+
+        let currentObjectIndex = 0;
+
+        function drawBoundingBoxes() {
+            const img = document.getElementById('scene-image');
+            const container = img.parentElement;
+            const boxContainer = document.getElementById('bounding-boxes');
+            
+            // Clear existing boxes
+            boxContainer.innerHTML = '';
+            
+            objects.forEach((obj, index) => {
+                const [x, y, width, height] = obj.bbox;
+                const box = document.createElement('div');
+                box.className = 'object-overlay';
+                
+                // Calculate percentages based on image dimensions
+                const leftPercent = (x / img.naturalWidth) * 100;
+                const topPercent = (y / img.naturalHeight) * 100;
+                const widthPercent = (width / img.naturalWidth) * 100;
+                const heightPercent = (height / img.naturalHeight) * 100;
+                
+                box.style.left = leftPercent + '%';
+                box.style.top = topPercent + '%';
+                box.style.width = widthPercent + '%';
+                box.style.height = heightPercent + '%';
+                
+                // Highlight current object
+                if (index === currentObjectIndex) {
+                    box.style.borderColor = '#ef4444';
+                    box.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
+                }
+                
+                boxContainer.appendChild(box);
+            });
+        }
+
+        function updateObjectList() {
+            const objectList = document.getElementById('object-list');
+            const currentObject = objects[currentObjectIndex];
+            
+            objectList.innerHTML = `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-medium">Object ${currentObjectIndex + 1} of ${objects.length}</h4>
+                        <span class="text-sm text-gray-500">ID: ${currentObject.object_id.slice(0, 8)}...</span>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm font-medium">Category:</span>
+                            <span class="text-sm capitalize">${currentObject.category}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm font-medium">Confidence:</span>
+                            <span class="text-sm">${(currentObject.confidence * 100).toFixed(1)}%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm font-medium">Status:</span>
+                            <span class="text-sm px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                                Pending Review
+                            </span>
+                        </div>
+                        <div class="text-sm">
+                            <span class="font-medium">Bounding Box:</span>
+                            <span class="ml-1">[${currentObject.bbox.join(', ')}]</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function approveObject() {
+            objects[currentObjectIndex].approved = true;
+            alert(`✓ Object "${objects[currentObjectIndex].category}" approved!`);
+            nextObject();
+        }
+
+        function rejectObject() {
+            objects[currentObjectIndex].approved = false;
+            alert(`✗ Object "${objects[currentObjectIndex].category}" rejected!`);
+            nextObject();
+        }
+
+        function nextObject() {
+            currentObjectIndex = (currentObjectIndex + 1) % objects.length;
+            drawBoundingBoxes();
+            updateObjectList();
+        }
+
+        // Initialize
+        setTimeout(() => {
+            drawBoundingBoxes();
+            updateObjectList();
+        }, 100);
+
+        // Test API endpoints
+        async function testAPIs() {
+            const tests = [
+                { name: 'Health Check', url: 'https://ovalay-recruitment-production.up.railway.app/health' },
+                { name: 'Scenes', url: 'https://ovalay-recruitment-production.up.railway.app/scenes?limit=1' },
+                { name: 'Objects', url: 'https://ovalay-recruitment-production.up.railway.app/objects?limit=1' },
+                { name: 'Review Queue', url: 'https://ovalay-recruitment-production.up.railway.app/review/queue?limit=1' }
+            ];
+
+            for (const test of tests) {
+                try {
+                    const response = await fetch(test.url);
+                    console.log(`${test.name}: ${response.status} ${response.statusText}`);
+                } catch (error) {
+                    console.log(`${test.name}: Error - ${error.message}`);
+                }
+            }
+        }
+
+        testAPIs();
+    </script>
+</body>
+</html>

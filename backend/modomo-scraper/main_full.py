@@ -1042,6 +1042,25 @@ async def get_active_jobs():
         "export_jobs": []
     }
 
+# Color processing endpoints  
+@app.post("/process/colors")
+async def process_existing_objects_colors(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(50, description="Number of objects to process")
+):
+    """Process existing objects with color extraction"""
+    job_id = str(uuid.uuid4())
+    
+    # Start background task
+    background_tasks.add_task(run_color_processing_job, job_id, limit)
+    
+    return {
+        "job_id": job_id,
+        "status": "running", 
+        "message": f"Started color processing for up to {limit} objects",
+        "note": "Check /jobs/active for status updates"
+    }
+
 # Scraping endpoints
 @app.post("/scrape/scenes")
 async def start_scene_scraping(
@@ -1097,6 +1116,91 @@ async def import_huggingface_dataset(
         "dataset": dataset,
         "features": ["import", "object_detection", "segmentation", "embeddings"] if include_detection else ["import"]
     }
+
+async def run_color_processing_job(job_id: str, limit: int):
+    """Background job to process existing objects with color extraction"""
+    try:
+        logger.info(f"🎨 Starting color processing job {job_id} for up to {limit} objects")
+        
+        if not supabase:
+            logger.error("❌ Supabase client not available for color processing")
+            return
+            
+        if not color_extractor:
+            logger.error("❌ Color extractor not available")
+            return
+        
+        # Get objects that don't have color data yet
+        result = supabase.table("detected_objects").select(
+            "object_id, scene_id, bbox, metadata"
+        ).is_("metadata->colors", "null").limit(limit).execute()
+        
+        if not result.data:
+            logger.info("✅ All objects already have color data")
+            return
+            
+        logger.info(f"📊 Found {len(result.data)} objects to process for colors")
+        processed_count = 0
+        
+        for obj in result.data:
+            try:
+                # Get scene info for image URL
+                scene_result = supabase.table("scenes").select(
+                    "image_url"
+                ).eq("scene_id", obj["scene_id"]).single().execute()
+                
+                if not scene_result.data:
+                    logger.warning(f"⚠️ No scene found for object {obj['object_id']}")
+                    continue
+                    
+                image_url = scene_result.data["image_url"]
+                bbox = obj["bbox"]
+                
+                # Extract colors using the endpoint we already have
+                try:
+                    import aiohttp
+                    import tempfile
+                    import os
+                    
+                    # Download image to temp file
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(image_url) as img_response:
+                            if img_response.status == 200:
+                                content = await img_response.read()
+                                
+                                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                                    tmp.write(content)
+                                    temp_path = tmp.name
+                                
+                                # Extract colors
+                                color_data = await color_extractor.extract_colors(temp_path, bbox)
+                                
+                                # Clean up temp file
+                                os.unlink(temp_path)
+                                
+                                # Update object metadata with colors
+                                current_metadata = obj.get("metadata", {})
+                                current_metadata["colors"] = color_data
+                                
+                                supabase.table("detected_objects").update({
+                                    "metadata": current_metadata
+                                }).eq("object_id", obj["object_id"]).execute()
+                                
+                                processed_count += 1
+                                logger.info(f"✅ Added colors to object {obj['object_id']} ({processed_count}/{len(result.data)})")
+                                
+                except Exception as e:
+                    logger.error(f"❌ Failed to process colors for object {obj['object_id']}: {e}")
+                    continue
+                    
+            except Exception as e:
+                logger.error(f"❌ Failed to process object {obj['object_id']}: {e}")
+                continue
+        
+        logger.info(f"🎨 Color processing job {job_id} completed: {processed_count}/{len(result.data)} objects processed")
+        
+    except Exception as e:
+        logger.error(f"❌ Color processing job {job_id} failed: {e}")
 
 async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool):
     """Import dataset from HuggingFace and process with AI pipeline"""
