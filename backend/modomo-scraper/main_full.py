@@ -1510,18 +1510,37 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                         # Use upsert to handle conflicts
                         result = supabase.table("scenes").upsert(scene_data).execute()
                         
-                        logger.info(f"📋 Supabase response: {result}")
-                        
                         if result.data:
                             scene_db_id = result.data[0]["scene_id"] 
                             logger.info(f"✅ Successfully stored scene {scene_id} in Supabase (ID: {scene_db_id})")
+                            update_job_progress("processing", i, len(rows), f"Stored scene {i+1}/{len(rows)} in database")
                         else:
-                            logger.error(f"❌ No data returned from Supabase for {scene_id} - response: {result}")
+                            logger.error(f"❌ No data returned from Supabase for {scene_id}")
                             scene_db_id = None
+                            
                     except Exception as db_error:
-                        logger.error(f"❌ Failed to store scene {scene_id} in Supabase: {db_error}")
-                        logger.error(f"Scene data that failed: {scene_data}")
-                        scene_db_id = None
+                        error_str = str(db_error)
+                        
+                        # Handle duplicate key constraint specifically
+                        if "duplicate key value violates unique constraint" in error_str and "scenes_houzz_id_key" in error_str:
+                            logger.warning(f"⚠️ Scene {scene_id} already exists in database - attempting to retrieve existing ID")
+                            try:
+                                # Try to get the existing scene
+                                existing = supabase.table("scenes").select("scene_id").eq("houzz_id", scene_id).execute()
+                                if existing.data:
+                                    scene_db_id = existing.data[0]["scene_id"]
+                                    logger.info(f"✅ Retrieved existing scene {scene_id} (ID: {scene_db_id})")
+                                    update_job_progress("processing", i, len(rows), f"Found existing scene {i+1}/{len(rows)}")
+                                else:
+                                    logger.error(f"❌ Could not retrieve existing scene {scene_id}")
+                                    scene_db_id = None
+                            except Exception as retrieve_error:
+                                logger.error(f"❌ Failed to retrieve existing scene {scene_id}: {retrieve_error}")
+                                scene_db_id = None
+                        else:
+                            logger.error(f"❌ Failed to store scene {scene_id} in Supabase: {db_error}")
+                            update_job_progress("processing", i, len(rows), f"Database error on scene {i+1}/{len(rows)}")
+                            scene_db_id = None
                 else:
                     logger.error("❌ No Supabase client available - cannot store scenes in database")
                     scene_db_id = None
