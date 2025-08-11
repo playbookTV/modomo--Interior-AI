@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Play, Loader2, Database, Sparkles, AlertTriangle, Eye, CheckCircle, Clock, 
-  Grid, List, Download, Target, Palette, Filter, BarChart3 
+  Grid, List, Download, Target, Palette, Filter, BarChart3, ImageIcon, ChevronLeft, 
+  ChevronRight, ArrowLeft 
 } from 'lucide-react'
 
 interface ImportJob {
@@ -39,6 +40,19 @@ async function importDataset(params: {
     { method: 'POST' }
   )
   if (!response.ok) throw new Error('Import failed')
+  return response.json()
+}
+
+async function fetchJobStatus(jobId: string): Promise<any> {
+  const response = await fetch(
+    `https://ovalay-recruitment-production.up.railway.app/jobs/${jobId}/status`
+  )
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Job not found')
+    }
+    throw new Error('Failed to fetch job status')
+  }
   return response.json()
 }
 
@@ -85,6 +99,24 @@ async function exportTrainingDataset(): Promise<any> {
   return response.json()
 }
 
+async function fetchAllProcessedImages(page = 1, limit = 20): Promise<{scenes: any[], total: number, page: number, totalPages: number}> {
+  const offset = (page - 1) * limit
+  const response = await fetch(
+    `https://ovalay-recruitment-production.up.railway.app/scenes?limit=${limit}&offset=${offset}&include_objects=true`
+  )
+  if (!response.ok) throw new Error('Failed to fetch processed images')
+  
+  const data = await response.json()
+  const totalPages = Math.ceil(data.total / limit)
+  
+  return {
+    scenes: data.scenes || [],
+    total: data.total || 0,
+    page: page,
+    totalPages: totalPages
+  }
+}
+
 export function DatasetImporter() {
   const [selectedDataset, setSelectedDataset] = useState('sk2003/houzzdata')
   const [customDataset, setCustomDataset] = useState('')
@@ -95,6 +127,9 @@ export function DatasetImporter() {
   const [isMonitoring, setIsMonitoring] = useState(false)
   const [viewMode, setViewMode] = useState<'scenes' | 'objects'>('scenes')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [jobProgress, setJobProgress] = useState<any>(null)
+  const [showGallery, setShowGallery] = useState(false)
+  const [galleryPage, setGalleryPage] = useState(1)
 
   const queryClient = useQueryClient()
 
@@ -125,6 +160,36 @@ export function DatasetImporter() {
     queryFn: () => fetchObjects(10, selectedCategory || undefined),
     enabled: isMonitoring && viewMode === 'objects',
     refetchInterval: isMonitoring && viewMode === 'objects' ? 3000 : false
+  })
+
+  // Job progress tracking
+  const { data: currentJobProgress } = useQuery({
+    queryKey: ['job-status', lastJob?.job_id],
+    queryFn: () => fetchJobStatus(lastJob!.job_id),
+    enabled: !!lastJob?.job_id && (lastJob?.status === 'running' || jobProgress?.status === 'processing'),
+    refetchInterval: !!lastJob?.job_id && (lastJob?.status === 'running' || jobProgress?.status === 'processing') ? 2000 : false,
+    onSuccess: (data) => {
+      setJobProgress(data)
+      // Stop monitoring when job is complete
+      if (data.status === 'completed' || data.status === 'failed') {
+        setIsMonitoring(true) // Keep monitoring dashboard stats for a bit
+        // Auto-refresh dashboard stats
+        refetchStats()
+        refetchScenes()
+        queryClient.invalidateQueries({ queryKey: ['category-stats'] })
+      }
+    },
+    onError: (error) => {
+      console.warn('Job status fetch error:', error)
+    }
+  })
+
+  // Gallery data for processed images
+  const { data: galleryData, isLoading: galleryLoading } = useQuery({
+    queryKey: ['processed-images', galleryPage],
+    queryFn: () => fetchAllProcessedImages(galleryPage, 20),
+    enabled: showGallery,
+    keepPreviousData: true
   })
 
   const exportMutation = useMutation({
@@ -315,14 +380,79 @@ export function DatasetImporter() {
 
       {/* Last Job Status */}
       {lastJob && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <h4 className="font-medium text-blue-900 mb-2">Latest Import Job</h4>
-          <div className="text-sm space-y-1">
-            <p><span className="font-medium">Job ID:</span> {lastJob.job_id}</p>
-            <p><span className="font-medium">Status:</span> {lastJob.status}</p>
-            <p><span className="font-medium">Dataset:</span> {lastJob.dataset}</p>
-            <p><span className="font-medium">Message:</span> {lastJob.message}</p>
+        <div className="space-y-4">
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 className="font-medium text-blue-900 mb-2">Latest Import Job</h4>
+            <div className="text-sm space-y-1">
+              <p><span className="font-medium">Job ID:</span> {lastJob.job_id}</p>
+              <p><span className="font-medium">Status:</span> {lastJob.status}</p>
+              <p><span className="font-medium">Dataset:</span> {lastJob.dataset}</p>
+              <p><span className="font-medium">Message:</span> {lastJob.message}</p>
+            </div>
           </div>
+
+          {/* Job Progress */}
+          {jobProgress && (
+            <div className="p-4 bg-white border border-slate-200 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium text-slate-900">Import Progress</h4>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  jobProgress.status === 'completed' ? 'bg-green-100 text-green-800' :
+                  jobProgress.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  jobProgress.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {jobProgress.status}
+                </span>
+              </div>
+              
+              {/* Progress bar */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between text-sm text-slate-600 mb-1">
+                  <span>{jobProgress.processed || 0} of {jobProgress.total || 0} images processed</span>
+                  <span>{jobProgress.progress || 0}%</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full transition-all duration-300 ${
+                      jobProgress.status === 'completed' ? 'bg-green-500' :
+                      jobProgress.status === 'failed' ? 'bg-red-500' :
+                      'bg-blue-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, jobProgress.progress || 0))}%` }}
+                  />
+                </div>
+              </div>
+              
+              {/* Status message */}
+              {jobProgress.message && (
+                <p className="text-sm text-slate-600">{jobProgress.message}</p>
+              )}
+              
+              {/* Completion notification */}
+              {jobProgress.status === 'completed' && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center">
+                    <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                    <span className="text-sm font-medium text-green-800">
+                      Import completed successfully! 
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              {jobProgress.status === 'failed' && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center">
+                    <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
+                    <span className="text-sm font-medium text-red-800">
+                      Import failed. Check the logs for details.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -356,6 +486,13 @@ export function DatasetImporter() {
                   <Download className="h-3 w-3 mr-1" />
                 )}
                 Export Dataset
+              </button>
+              <button
+                onClick={() => setShowGallery(true)}
+                className="inline-flex items-center px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+              >
+                <ImageIcon className="h-3 w-3 mr-1" />
+                View Gallery
               </button>
               <button
                 onClick={() => setIsMonitoring(false)}
@@ -632,6 +769,151 @@ export function DatasetImporter() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Processed Images Gallery */}
+      {showGallery && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-6xl max-h-[90vh] w-full mx-4 overflow-hidden">
+            {/* Gallery Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="text-xl font-semibold text-slate-900 flex items-center">
+                <ImageIcon className="h-6 w-6 mr-2" />
+                Processed Images Gallery
+                {galleryData && (
+                  <span className="ml-2 text-sm font-normal text-slate-600">
+                    ({galleryData.total} total images)
+                  </span>
+                )}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowGallery(false)
+                  setGalleryPage(1)
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <ArrowLeft className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Gallery Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-8rem)]">
+              {galleryLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                  <span className="ml-2 text-slate-600">Loading gallery...</span>
+                </div>
+              ) : galleryData?.scenes.length === 0 ? (
+                <div className="text-center py-12">
+                  <ImageIcon className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">No processed images</h3>
+                  <p className="text-slate-600">Import some datasets to see processed images here.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Gallery Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {galleryData?.scenes.map((scene: any) => (
+                      <div key={scene.scene_id} className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        {/* Image */}
+                        <div className="relative">
+                          <img
+                            src={scene.image_url}
+                            alt={scene.houzz_id}
+                            className="w-full h-48 object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjZjMzNDU2Ii8+Cjx0ZXh0IHg9IjEyIiB5PSIxMiIgZmlsbD0iI2ZmZmZmZiIgZm9udC1zaXplPSI4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+4p2MPC90ZXh0Pgo8L3N2Zz4K'
+                            }}
+                          />
+                          {/* Status badge */}
+                          <div className="absolute top-2 right-2">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              scene.status === 'scraped' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {scene.status}
+                            </span>
+                          </div>
+                          {/* Objects count overlay */}
+                          {scene.object_count > 0 && (
+                            <div className="absolute bottom-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-medium flex items-center">
+                              <Target className="h-3 w-3 mr-1" />
+                              {scene.object_count} objects
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Image Details */}
+                        <div className="p-4">
+                          <h4 className="font-medium text-slate-900 truncate mb-2">{scene.houzz_id}</h4>
+                          
+                          <div className="space-y-2 text-sm text-slate-600">
+                            <div className="flex items-center justify-between">
+                              <span>Room Type:</span>
+                              <span className="font-medium">{scene.room_type}</span>
+                            </div>
+                            
+                            {scene.style_tags && scene.style_tags.length > 0 && (
+                              <div>
+                                <span className="block mb-1">Style Tags:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {scene.style_tags.slice(0, 2).map((tag: string, idx: number) => (
+                                    <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                                      {tag}
+                                    </span>
+                                  ))}
+                                  {scene.style_tags.length > 2 && (
+                                    <span className="text-xs text-slate-500">
+                                      +{scene.style_tags.length - 2} more
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {scene.image_r2_key && (
+                              <div className="flex items-center text-green-600">
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                <span className="text-xs">Stored in R2</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {galleryData && galleryData.totalPages > 1 && (
+                    <div className="flex items-center justify-center space-x-4 pt-6 border-t border-slate-200">
+                      <button
+                        onClick={() => setGalleryPage(Math.max(1, galleryPage - 1))}
+                        disabled={galleryPage === 1}
+                        className="flex items-center px-3 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        Previous
+                      </button>
+                      
+                      <span className="text-sm text-slate-600">
+                        Page {galleryData.page} of {galleryData.totalPages}
+                      </span>
+                      
+                      <button
+                        onClick={() => setGalleryPage(Math.min(galleryData.totalPages, galleryPage + 1))}
+                        disabled={galleryPage === galleryData.totalPages}
+                        className="flex items-center px-3 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

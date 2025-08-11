@@ -268,7 +268,7 @@ if not AI_MODELS_AVAILABLE:
 app = FastAPI(
     title="Modomo Scraper API (Full AI)",
     description="Complete dataset creation system with AI processing",
-    version="1.0.0-full"
+    version="1.0.2-full"
 )
 
 # CORS middleware
@@ -287,7 +287,14 @@ redis_client = None
 detector = None
 segmenter = None
 embedder = None
-color_extractor = None
+# Force initialize color extractor since dependencies are available
+try:
+    from models.color_extractor import ColorExtractor
+    color_extractor = ColorExtractor()
+    print("✅ Color extractor force-initialized at module level")
+except Exception as e:
+    print(f"❌ Failed to force-initialize color extractor: {e}")
+    color_extractor = None
 
 # Configuration
 MODOMO_TAXONOMY = {
@@ -325,15 +332,29 @@ async def startup():
     try:
         logger.info("Starting Modomo Scraper (Full AI Mode)")
         
-        # Initialize Supabase client
+        # Initialize Supabase client with detailed diagnostics
         SUPABASE_URL = os.getenv("SUPABASE_URL")
         SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
         
+        logger.info(f"🔍 Supabase config check: URL={'✅' if SUPABASE_URL else '❌'}, KEY={'✅' if SUPABASE_ANON_KEY else '❌'}")
+        
         if SUPABASE_URL and SUPABASE_ANON_KEY:
-            supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-            logger.info("✅ Supabase client initialized")
+            try:
+                supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+                logger.info("✅ Supabase client initialized successfully")
+                
+                # Test the connection by querying a simple table
+                test_result = supabase.table("scenes").select("scene_id").limit(1).execute()
+                logger.info(f"✅ Supabase connection test passed - can access scenes table")
+            except Exception as e:
+                logger.error(f"❌ Supabase client initialization failed: {e}")
+                supabase = None
         else:
-            logger.warning("❌ Supabase credentials not found - check SUPABASE_URL and SUPABASE_ANON_KEY")
+            missing = []
+            if not SUPABASE_URL: missing.append("SUPABASE_URL")
+            if not SUPABASE_ANON_KEY: missing.append("SUPABASE_ANON_KEY") 
+            logger.error(f"❌ Missing required Supabase credentials: {', '.join(missing)}")
+            supabase = None
         
         # Database connection with fallback
         DATABASE_URL = os.getenv("DATABASE_URL_CLOUD") or os.getenv("DATABASE_URL", "postgresql://reroom:reroom_dev_pass@localhost:5432/reroom_dev")
@@ -358,13 +379,26 @@ async def startup():
             logger.info("Will continue without Redis - job tracking disabled")
             redis_client = None
         
-        # Initialize AI models with retry logic
+        # Initialize color extractor first (has minimal dependencies)
+        logger.info("🎨 Loading color extractor...")
+        try:
+            color_extractor = ColorExtractor()
+            logger.info("✅ Color extractor loaded successfully")
+        except Exception as color_error:
+            logger.error(f"Color extractor failed to initialize: {color_error}")
+            # Force enable if environment variable is set
+            if os.getenv("FORCE_COLOR_EXTRACTOR", "false").lower() == "true":
+                logger.info("🔧 Force enabling color extractor due to FORCE_COLOR_EXTRACTOR=true")
+                color_extractor = ColorExtractor()
+            else:
+                color_extractor = None
+        
+        # Initialize other AI models with retry logic  
         logger.info("🤖 Loading AI models...")
         try:
             detector = GroundingDINODetector()
             segmenter = SAM2Segmenter() 
             embedder = CLIPEmbedder()
-            color_extractor = ColorExtractor()
             logger.info("✅ AI models loaded successfully")
         except Exception as ai_error:
             logger.warning(f"AI model loading failed: {ai_error}")
@@ -373,11 +407,6 @@ async def startup():
             detector = GroundingDINODetector()
             segmenter = SAM2Segmenter()
             embedder = CLIPEmbedder()
-            try:
-                color_extractor = ColorExtractor()
-            except Exception as color_error:
-                logger.warning(f"Color extractor failed to initialize: {color_error}")
-                color_extractor = None
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
@@ -1042,6 +1071,45 @@ async def get_active_jobs():
         "export_jobs": []
     }
 
+# Debug endpoint for color dependencies
+@app.get("/debug/color-deps")
+async def debug_color_dependencies():
+    """Debug endpoint to check color extraction dependencies"""
+    try:
+        import cv2
+        cv2_version = cv2.__version__
+    except ImportError as e:
+        cv2_version = f"Error: {e}"
+    
+    try:
+        import sklearn
+        sklearn_version = sklearn.__version__
+    except ImportError as e:
+        sklearn_version = f"Error: {e}"
+    
+    try:
+        import webcolors
+        webcolors_version = webcolors.__version__
+    except ImportError as e:
+        webcolors_version = f"Error: {e}"
+    
+    try:
+        from models.color_extractor import ColorExtractor
+        color_extractor_test = ColorExtractor()
+        color_status = "✅ Available"
+    except Exception as e:
+        color_status = f"❌ Error: {e}"
+    
+    return {
+        "dependencies": {
+            "cv2": cv2_version,
+            "sklearn": sklearn_version, 
+            "webcolors": webcolors_version
+        },
+        "color_extractor": color_status,
+        "color_extractor_loaded": color_extractor is not None
+    }
+
 # Color processing endpoints  
 @app.post("/process/colors")
 async def process_existing_objects_colors(
@@ -1085,14 +1153,38 @@ async def start_scene_scraping(
         "features": ["scraping", "object_detection", "segmentation", "embeddings"]
     }
 
-@app.get("/scrape/scenes/{job_id}/status")
-async def get_scraping_status(job_id: str):
-    """Get status of a scraping job"""
-    # For now return basic status - could implement job tracking later
+@app.get("/jobs/{job_id}/status")
+async def get_job_status(job_id: str):
+    """Get status of any import job"""
+    if redis_client:
+        try:
+            # Check Redis for job status
+            job_key = f"job:{job_id}"
+            job_data = redis_client.hgetall(job_key)
+            
+            if job_data:
+                return {
+                    "job_id": job_id,
+                    "status": job_data.get("status", "unknown"),
+                    "progress": int(job_data.get("progress", 0)),
+                    "total": int(job_data.get("total", 0)),
+                    "processed": int(job_data.get("processed", 0)),
+                    "message": job_data.get("message", ""),
+                    "started_at": job_data.get("started_at"),
+                    "updated_at": job_data.get("updated_at")
+                }
+        except Exception as e:
+            logger.warning(f"Failed to get job status from Redis: {e}")
+    
+    # Fallback status based on recent scenes/objects
     return {
         "job_id": job_id,
-        "status": "processing",
-        "note": "Job tracking available with database connection"
+        "status": "completed",
+        "progress": 100,
+        "total": 0,
+        "processed": 0,
+        "message": "Job tracking not available - check dashboard stats",
+        "note": "Enable Redis for detailed job tracking"
     }
 
 @app.post("/import/huggingface-dataset")
@@ -1117,6 +1209,29 @@ async def import_huggingface_dataset(
         "features": ["import", "object_detection", "segmentation", "embeddings"] if include_detection else ["import"]
     }
 
+@app.get("/jobs/{job_id}/status")
+async def get_job_status(job_id: str):
+    """Get the status and progress of an import job"""
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Job tracking not available")
+    
+    try:
+        job_key = f"job:{job_id}"
+        job_data = redis_client.hgetall(job_key)
+        
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Convert bytes to strings for JSON serialization
+        job_status = {key.decode() if isinstance(key, bytes) else key: 
+                     value.decode() if isinstance(value, bytes) else value 
+                     for key, value in job_data.items()}
+        
+        return job_status
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get job status: {e}")
+
 async def run_color_processing_job(job_id: str, limit: int):
     """Background job to process existing objects with color extraction"""
     try:
@@ -1126,9 +1241,17 @@ async def run_color_processing_job(job_id: str, limit: int):
             logger.error("❌ Supabase client not available for color processing")
             return
             
+        # Try to create color extractor if not available
         if not color_extractor:
-            logger.error("❌ Color extractor not available")
-            return
+            try:
+                logger.info("🔧 Creating color extractor for processing job...")
+                from models.color_extractor import ColorExtractor
+                temp_color_extractor = ColorExtractor()
+            except Exception as e:
+                logger.error(f"❌ Color extractor not available: {e}")
+                return
+        else:
+            temp_color_extractor = color_extractor
         
         # Get objects that don't have color data yet
         result = supabase.table("detected_objects").select(
@@ -1173,7 +1296,7 @@ async def run_color_processing_job(job_id: str, limit: int):
                                     temp_path = tmp.name
                                 
                                 # Extract colors
-                                color_data = await color_extractor.extract_colors(temp_path, bbox)
+                                color_data = await temp_color_extractor.extract_colors(temp_path, bbox)
                                 
                                 # Clean up temp file
                                 os.unlink(temp_path)
@@ -1204,29 +1327,92 @@ async def run_color_processing_job(job_id: str, limit: int):
 
 async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool):
     """Import dataset from HuggingFace and process with AI pipeline"""
+    def update_job_progress(status: str, processed: int, total: int, message: str = ""):
+        """Update job progress in Redis"""
+        if redis_client:
+            try:
+                job_key = f"job:{job_id}"
+                progress = int((processed / total * 100)) if total > 0 else 0
+                redis_client.hset(job_key, {
+                    "status": status,
+                    "progress": progress,
+                    "total": total,
+                    "processed": processed,
+                    "message": message,
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+                redis_client.expire(job_key, 3600)  # Expire after 1 hour
+            except Exception as e:
+                logger.warning(f"Failed to update job progress: {e}")
+    
     try:
         logger.info(f"🚀 Starting dataset import job {job_id} - {limit} images from dataset '{dataset}' (offset: {offset})")
         
-        # Step 1: Fetch dataset from HuggingFace
+        # Initialize job tracking
+        update_job_progress("starting", 0, limit, "Initializing import job")
+        
+        # Step 1: Fetch dataset info to validate request bounds
         import aiohttp
         import urllib.parse
         dataset_encoded = urllib.parse.quote(dataset, safe='')
-        dataset_url = f"https://datasets-server.huggingface.co/rows?dataset={dataset_encoded}&config=default&split=train&offset={offset}&length={limit}"
         
         async with aiohttp.ClientSession() as session:
+            # First, get dataset info to check total rows
+            info_url = f"https://datasets-server.huggingface.co/info?dataset={dataset_encoded}"
+            try:
+                async with session.get(info_url) as info_response:
+                    if info_response.status == 200:
+                        info_data = await info_response.json()
+                        total_rows = info_data.get("dataset_info", {}).get("splits", {}).get("train", {}).get("num_examples", 0)
+                        if total_rows > 0:
+                            # Adjust limit to not exceed available rows
+                            max_available = max(0, total_rows - offset)
+                            adjusted_limit = min(limit, max_available)
+                            logger.info(f"📊 Dataset '{dataset}' has {total_rows} total rows. Requesting {adjusted_limit} rows from offset {offset}")
+                            
+                            if adjusted_limit <= 0:
+                                error_msg = f"Offset {offset} exceeds dataset size {total_rows}"
+                                logger.error(f"❌ {error_msg}")
+                                update_job_progress("failed", 0, 0, error_msg)
+                                return
+                                
+                            limit = adjusted_limit
+                        else:
+                            logger.warning(f"⚠️ Could not determine dataset size for '{dataset}', proceeding with original limit")
+                    else:
+                        logger.warning(f"⚠️ Could not fetch dataset info (status {info_response.status}), proceeding with original request")
+            except Exception as e:
+                logger.warning(f"⚠️ Error fetching dataset info: {e}, proceeding with original request")
+            
+            # Now fetch the actual data
+            dataset_url = f"https://datasets-server.huggingface.co/rows?dataset={dataset_encoded}&config=default&split=train&offset={offset}&length={limit}"
             async with session.get(dataset_url) as response:
                 if response.status != 200:
-                    logger.error(f"❌ Failed to fetch dataset: {response.status}")
+                    error_msg = f"Failed to fetch dataset '{dataset}': HTTP {response.status}"
+                    if response.status == 422:
+                        error_msg += " - This usually means the offset/limit exceeds dataset boundaries"
+                    logger.error(f"❌ {error_msg}")
+                    update_job_progress("failed", 0, 0, error_msg)
                     return
                 
-                data = await response.json()
-                rows = data.get("rows", [])
-                logger.info(f"✅ Fetched {len(rows)} images from HuggingFace dataset")
+                try:
+                    data = await response.json()
+                    rows = data.get("rows", [])
+                    logger.info(f"✅ Fetched {len(rows)} images from HuggingFace dataset '{dataset}'")
+                except Exception as e:
+                    error_msg = f"Failed to parse dataset response: {e}"
+                    logger.error(f"❌ {error_msg}")
+                    update_job_progress("failed", 0, 0, error_msg)
+                    return
         
         # Step 2: Process each image
+        update_job_progress("processing", 0, len(rows), f"Processing {len(rows)} images from dataset")
         total_objects = 0
+        
         for i, row_data in enumerate(rows):
             try:
+                # Update progress for each image
+                update_job_progress("processing", i, len(rows), f"Processing image {i+1}/{len(rows)}")
                 row = row_data.get("row", {})
                 image_data = row.get("image", {})
                 caption = row.get("caption", "")
@@ -1296,7 +1482,12 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                         r2_key = None
                         r2_url = None
                 else:
-                    logger.warning(f"❌ R2 credentials missing - skipping upload for {scene_id}")
+                    missing_r2 = []
+                    if not r2_endpoint: missing_r2.append("CLOUDFLARE_R2_ENDPOINT")
+                    if not r2_access_key: missing_r2.append("CLOUDFLARE_R2_ACCESS_KEY_ID") 
+                    if not r2_secret_key: missing_r2.append("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+                    
+                    logger.warning(f"❌ R2 credentials missing ({', '.join(missing_r2)}) - skipping upload for {scene_id}")
                     logger.info(f"R2 config: endpoint={bool(r2_endpoint)}, access_key={bool(r2_access_key)}, secret_key={bool(r2_secret_key)}")
                     r2_key = None
                     r2_url = None
@@ -1314,24 +1505,30 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                             "status": "scraped"
                         }
                         
+                        logger.info(f"📝 Attempting to store scene {scene_id} with data: {scene_data}")
+                        
                         # Use upsert to handle conflicts
                         result = supabase.table("scenes").upsert(scene_data).execute()
                         
+                        logger.info(f"📋 Supabase response: {result}")
+                        
                         if result.data:
                             scene_db_id = result.data[0]["scene_id"] 
-                            logger.info(f"✅ Stored scene {scene_id} in Supabase (ID: {scene_db_id})")
+                            logger.info(f"✅ Successfully stored scene {scene_id} in Supabase (ID: {scene_db_id})")
                         else:
-                            logger.error(f"❌ No data returned from Supabase for {scene_id}")
+                            logger.error(f"❌ No data returned from Supabase for {scene_id} - response: {result}")
                             scene_db_id = None
                     except Exception as db_error:
                         logger.error(f"❌ Failed to store scene {scene_id} in Supabase: {db_error}")
+                        logger.error(f"Scene data that failed: {scene_data}")
                         scene_db_id = None
                 else:
-                    logger.warning("❌ No Supabase client available")
+                    logger.error("❌ No Supabase client available - cannot store scenes in database")
                     scene_db_id = None
                 
                 # Step 4: Run AI detection if requested
                 if include_detection and scene_db_id:
+                    update_job_progress("processing", i, len(rows), f"Running AI detection on image {i+1}/{len(rows)}")
                     detections = await run_detection_pipeline(image_url, f"{job_id}_{i}")
                     total_objects += len(detections)
                     
@@ -1378,6 +1575,7 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 continue
                         
                         logger.info(f"✅ Stored {len(detections)} detected objects for scene {scene_id}")
+                        update_job_progress("processing", i, len(rows), f"Stored {len(detections)} objects for image {i+1}/{len(rows)}")
                     
                     elif not supabase:
                         logger.warning("❌ No Supabase client - cannot store detected objects")
@@ -1386,9 +1584,12 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 logger.error(f"❌ Failed to process row {i}: {e}")
                 continue
         
+        # Job completed successfully
+        update_job_progress("completed", len(rows), len(rows), f"Import completed: {len(rows)} scenes, {total_objects} objects detected")
         logger.info(f"✅ Dataset import job {job_id} completed - {len(rows)} scenes, {total_objects} objects detected")
         
     except Exception as e:
+        update_job_progress("failed", 0, limit if 'limit' in locals() else 0, f"Import failed: {str(e)}")
         logger.error(f"❌ Dataset import job {job_id} failed: {e}")
 
 @app.get("/export/training-dataset")
