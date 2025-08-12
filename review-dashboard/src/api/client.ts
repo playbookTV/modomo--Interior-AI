@@ -96,6 +96,20 @@ export const approveScene = async (sceneId: string): Promise<{ status: string; s
   }
 }
 
+export const rejectScene = async (sceneId: string): Promise<{ status: string; scene_id: string }> => {
+  try {
+    const response = await apiClient.post(`/review/reject/${sceneId}`, {}, {
+      timeout: 30000, // Increase timeout for scene rejection
+    })
+    return response.data
+  } catch (error: any) {
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Scene rejection is taking longer than expected. The operation may still be processing in the background.')
+    }
+    throw error
+  }
+}
+
 // Dataset export
 export const startDatasetExport = async (params: {
   train_ratio: number

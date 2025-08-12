@@ -174,7 +174,8 @@ class SAM2Segmenter:
             
             # Generate unique output path
             mask_id = f"mask_{uuid.uuid4().hex[:8]}"
-            output_dir = tempfile.mkdtemp()
+            output_dir = "/tmp/masks"  # Use the mounted static directory
+            os.makedirs(output_dir, exist_ok=True)
             
             result = await self.segment_advanced(
                 image_path=image_path,

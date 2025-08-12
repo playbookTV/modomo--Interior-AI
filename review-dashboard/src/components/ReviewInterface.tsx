@@ -281,6 +281,7 @@ interface ReviewInterfaceProps {
   isLastObject: boolean
   isUpdating?: boolean
   isApprovingScene?: boolean
+  isRejectingScene?: boolean
 }
 
 export function ReviewInterface({
@@ -293,14 +294,22 @@ export function ReviewInterface({
   onRejectScene,
   isLastObject,
   isUpdating = false,
-  isApprovingScene = false
+  isApprovingScene = false,
+  isRejectingScene = false
 }: ReviewInterfaceProps) {
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [showProductMatcher, setShowProductMatcher] = useState(false)
   const [showMasks, setShowMasks] = useState(true)
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false)
+  const [imageDimensions, setImageDimensions] = useState({ width: 1920, height: 1080 })
   
   const currentObject = scene.objects[currentObjectIndex]
+  
+  // Handle image load to get actual dimensions
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget
+    setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight })
+  }
   
   // Keyboard shortcuts
   useHotkeys('a', () => handleApprove(), [currentObject])
@@ -387,13 +396,14 @@ export function ReviewInterface({
           src={scene.image_url}
           alt={`Room scene ${scene.scene_id}`}
           className="w-full h-full object-contain"
+          onLoad={handleImageLoad}
         />
         
         <ObjectOverlay
           objects={scene.objects}
           currentObjectIndex={currentObjectIndex}
-          imageWidth={1920} // Would need to get actual dimensions
-          imageHeight={1080}
+          imageWidth={imageDimensions.width}
+          imageHeight={imageDimensions.height}
           showMasks={showMasks}
           showBoundingBoxes={showBoundingBoxes}
         />
@@ -558,17 +568,17 @@ export function ReviewInterface({
           <div className="flex gap-2">
             <button
               onClick={handleReject}
-              disabled={isUpdating || isApprovingScene}
+              disabled={isUpdating || isApprovingScene || isRejectingScene}
               className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Reject (R)"
             >
-              {isUpdating ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
+              {isUpdating || isRejectingScene ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
               Reject
             </button>
             
             <button
               onClick={handleApprove}
-              disabled={isUpdating || isApprovingScene}
+              disabled={isUpdating || isApprovingScene || isRejectingScene}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Approve (A)"
             >

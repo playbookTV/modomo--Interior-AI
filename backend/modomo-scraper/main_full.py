@@ -12,6 +12,7 @@ import json
 import logging
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import asyncpg
@@ -185,7 +186,7 @@ if not AI_MODELS_AVAILABLE:
                 image = cv2.imread(image_path)
                 x, y, w, h = [int(coord) for coord in bbox]
                 
-                mask_path = f"/tmp/mask_{uuid.uuid4().hex}.png"
+                mask_path = f"/tmp/masks/mask_{uuid.uuid4().hex}.png"
                 import numpy as np
                 mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
                 mask[y:y+h, x:x+w] = 255
@@ -312,6 +313,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Create masks directory and mount static files
+masks_dir = "/tmp/masks"
+os.makedirs(masks_dir, exist_ok=True)
+app.mount("/masks", StaticFiles(directory=masks_dir), name="masks")
 
 # Global instances
 supabase: Client = None
@@ -1191,19 +1197,34 @@ async def init_database():
 @app.get("/jobs/active")
 async def get_active_jobs():
     """Get currently active jobs"""
-    if db_pool:
+    all_jobs = []
+    
+    # Try to get jobs from Redis first (preferred for active job tracking)
+    if redis_client:
+        try:
+            job_keys = redis_client.keys("job:*")
+            for job_key in job_keys:
+                job_data = redis_client.hgetall(job_key)
+                if job_data and job_data.get("status") in ["pending", "running", "processing"]:
+                    # Convert bytes to strings for JSON serialization
+                    job_status = {key.decode() if isinstance(key, bytes) else key: 
+                                 value.decode() if isinstance(value, bytes) else value 
+                                 for key, value in job_data.items()}
+                    all_jobs.append(job_status)
+        except Exception as e:
+            logger.warning(f"Failed to get active jobs from Redis: {e}")
+    
+    # Fallback to database if available
+    if db_pool and not all_jobs:
         try:
             async with db_pool.acquire() as conn:
                 jobs = await conn.fetch("SELECT * FROM scraping_jobs WHERE status = 'running'")
-                return {"active_jobs": [dict(job) for job in jobs]}
+                all_jobs = [dict(job) for job in jobs]
         except Exception as e:
             logger.error(f"Database query failed: {e}")
     
-    return {
-        "scraping_jobs": [],
-        "detection_jobs": [],
-        "export_jobs": []
-    }
+    # Return consistent array format that frontend expects
+    return all_jobs
 
 # Debug endpoint for color dependencies
 @app.get("/debug/color-deps")
@@ -1803,6 +1824,17 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 if color_data:
                                     metadata["colors"] = color_data
                                 
+                                # Handle mask URL from mask_path
+                                mask_url = None
+                                mask_path = detection.get("mask_path")
+                                if mask_path and os.path.exists(mask_path):
+                                    # Generate URL for the static file endpoint
+                                    mask_filename = os.path.basename(mask_path)
+                                    mask_url = f"/masks/{mask_filename}"
+                                    logger.info(f"Generated mask URL: {mask_url} for path: {mask_path}")
+                                else:
+                                    logger.warning(f"No valid mask path found: {mask_path}")
+                                
                                 # Ensure all individual values are properly converted
                                 confidence_val = detection.get("confidence", 0.0)
                                 if hasattr(confidence_val, 'item'):
@@ -1820,7 +1852,8 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                     "tags": list(detection.get("tags", [])),
                                     "clip_embedding_json": embedding_val,
                                     "approved": None,  # Needs manual review
-                                    "metadata": metadata
+                                    "metadata": metadata,
+                                    "mask_url": mask_url  # Add mask URL if available
                                 }
                                 
                                 # Ensure all data is JSON serializable - apply recursively to catch all nested values
@@ -2052,7 +2085,7 @@ async def get_review_queue(
     """Get scenes pending review with detected objects
     
     NOTE: Scenes are filtered out of the queue when:
-    1. Scene status is "approved" (completed review)
+    1. Scene status is "approved" OR "rejected" (completed review)
     2. All objects in scene have non-null approved status
     This prevents scenes from appearing in queue after completion.
     """
@@ -2064,14 +2097,14 @@ async def get_review_queue(
             }
         
         # Build query for scenes with objects needing review
-        # First get scenes that have detected objects AND are not already approved
+        # First get scenes that have detected objects AND are not already completed (approved OR rejected)
         query = supabase.table("scenes").select("""
             scene_id, houzz_id, image_url, room_type, style_tags, status,
             detected_objects(
                 object_id, bbox, category, confidence, tags, 
                 approved, matched_product_id, metadata
             )
-        """).neq("status", "approved")
+        """).not_.in_("status", ["approved", "rejected"])
         
         # Add filters
         if room_type:
@@ -2090,9 +2123,9 @@ async def get_review_queue(
         # Format scenes with objects that need review
         scenes = []
         for scene_data in result.data:
-            # Skip scenes that are already approved at the scene level
+            # Skip scenes that are already completed (approved OR rejected) at the scene level
             scene_status = scene_data.get("status", "")
-            if scene_status == "approved":
+            if scene_status in ["approved", "rejected"]:
                 continue
                 
             detected_objects = scene_data.get("detected_objects", [])
@@ -2207,6 +2240,38 @@ async def approve_scene(scene_id: str):
         
     except Exception as e:
         logger.error(f"Scene approval failed: {e}")
+        return {"error": str(e)}
+
+@app.post("/review/reject/{scene_id}")
+async def reject_scene(scene_id: str):
+    """Mark a scene as rejected after review"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not available"}
+        
+        # Update scene status to rejected
+        scene_result = supabase.table("scenes").update({
+            "status": "rejected",
+            "reviewed_at": "now()"
+        }).eq("scene_id", scene_id).execute()
+        
+        # Also ensure any remaining null approved statuses are set to avoid edge cases
+        # This handles cases where objects were never individually approved/rejected
+        objects_result = supabase.table("detected_objects").update({
+            "approved": False  # Default to rejected when scene is rejected
+        }).eq("scene_id", scene_id).is_("approved", "null").execute()
+        
+        if not scene_result.data:
+            return {"error": f"Scene {scene_id} not found"}
+        
+        return {
+            "status": "success",
+            "scene_id": scene_id,
+            "message": "Scene rejected successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Scene rejection failed: {e}")
         return {"error": str(e)}
 
 if __name__ == "__main__":

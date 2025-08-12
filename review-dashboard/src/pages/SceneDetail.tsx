@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getReviewQueue, updateReview, approveScene } from '../api/client'
+import { getReviewQueue, updateReview, approveScene, rejectScene } from '../api/client'
 import { ReviewInterface } from '../components/ReviewInterface'
 import type { DetectedObject, Scene } from '../types'
 
@@ -71,6 +71,19 @@ export function SceneDetail() {
     }
   })
 
+  const rejectSceneMutation = useMutation({
+    mutationFn: (id: string) => rejectScene(id),
+    onSuccess: () => {
+      // Invalidate review queue cache to remove completed scene
+      queryClient.invalidateQueries({ queryKey: ['review-queue'] })
+      navigate('/review')
+    },
+    onError: (error: any) => {
+      console.error('Failed to reject scene:', error.message)
+      // TODO: Add toast notification or error display
+    }
+  })
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -118,9 +131,11 @@ export function SceneDetail() {
   }
 
   const handleRejectScene = () => {
-    // Currently, rejecting completes the scene similarly to approve flow per existing component logic
-    if (!localScene) return
-    approveSceneMutation.mutate(localScene.scene_id)
+    if (!localScene || rejectSceneMutation.isPending) {
+      console.log('Scene rejection already in progress, skipping...')
+      return
+    }
+    rejectSceneMutation.mutate(localScene.scene_id)
   }
 
   const handleNext = () => {
@@ -162,6 +177,7 @@ export function SceneDetail() {
           isLastObject={isLastObject}
           isUpdating={updateReviewMutation.isPending}
           isApprovingScene={approveSceneMutation.isPending}
+          isRejectingScene={rejectSceneMutation.isPending}
         />
       </div>
     </div>
