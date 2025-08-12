@@ -49,10 +49,11 @@ RUN echo "🤖 Installing AI dependencies with SAM2 for production..." && \
     pip install --upgrade pip && \
     pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-ai-stable.txt && \
-    echo "🔥 Installing SAM2 from source..." && \
+    echo "🔥 Installing SAM2 and CLIP from source..." && \
     pip install --no-cache-dir git+https://github.com/facebookresearch/segment-anything-2.git && \
+    pip install --no-cache-dir git+https://github.com/openai/CLIP.git && \
     pip install --no-cache-dir iopath hydra-core omegaconf && \
-    echo "✅ All AI dependencies including SAM2 installed successfully"
+    echo "✅ All AI dependencies including SAM2 and CLIP installed successfully"
 
 # Install Playwright browsers for web scraping
 RUN python -m playwright install-deps && \

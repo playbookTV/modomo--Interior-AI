@@ -1,36 +1,163 @@
 import React, { useState, useCallback } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Check, X, Edit3, Package, Loader2 } from 'lucide-react'
+import { Check, X, Edit3, Package, Loader2, Eye, EyeOff, Target } from 'lucide-react'
 import { DetectedObject, Scene, Product } from '../types'
 import { searchProducts } from '../api/client'
 
 // Inline UI components to avoid missing module imports
+
+function SegmentationQualityBadge({ object }: { object: DetectedObject }) {
+  if (object.mask_url) {
+    return (
+      <div className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+        <Target size={12} />
+        Neural Segmentation
+      </div>
+    )
+  } else {
+    return (
+      <div className="flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-medium">
+        <div className="w-3 h-3 border border-orange-600 rounded-sm" />
+        Bounding Box
+      </div>
+    )
+  }
+}
 
 type ObjectOverlayProps = {
   objects: DetectedObject[]
   currentObjectIndex: number
   imageWidth: number
   imageHeight: number
+  showMasks?: boolean
+  showBoundingBoxes?: boolean
 }
 
-function ObjectOverlay({ objects, currentObjectIndex, imageWidth, imageHeight }: ObjectOverlayProps) {
+function MaskOverlay({ 
+  maskUrl, 
+  isActive, 
+  opacity = 0.6 
+}: { 
+  maskUrl: string
+  isActive: boolean
+  opacity?: number 
+}) {
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {objects.map((obj, index) => {
+      {/* Colored overlay */}
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundColor: isActive ? '#10b981' : '#3b82f6', // Green for active, blue for inactive
+          opacity: isActive ? 0.3 : 0.2,
+          maskImage: `url(${maskUrl})`,
+          WebkitMaskImage: `url(${maskUrl})`,
+          maskRepeat: 'no-repeat',
+          maskSize: 'contain',
+          maskPosition: 'center',
+          WebkitMaskRepeat: 'no-repeat',
+          WebkitMaskSize: 'contain', 
+          WebkitMaskPosition: 'center'
+        }}
+      />
+      
+      {/* Mask outline */}
+      <img
+        src={maskUrl}
+        alt="Object mask"
+        className="w-full h-full object-contain"
+        style={{
+          opacity: isActive ? 0.8 : 0.5,
+          filter: isActive 
+            ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(120deg)' // Green outline for active
+            : 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(240deg)', // Blue outline for inactive
+          mixBlendMode: 'overlay'
+        }}
+        onError={(e) => {
+          // Hide broken masks gracefully
+          e.currentTarget.style.display = 'none'
+          console.warn('Failed to load mask:', maskUrl)
+        }}
+      />
+    </div>
+  )
+}
+
+function ObjectOverlay({ 
+  objects, 
+  currentObjectIndex, 
+  imageWidth, 
+  imageHeight,
+  showMasks = true,
+  showBoundingBoxes = false
+}: ObjectOverlayProps) {
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {/* SAM2 Mask Overlays */}
+      {showMasks && objects.map((obj, index) => {
+        if (!obj.mask_url) return null
+        
+        const isActive = index === currentObjectIndex
+        return (
+          <MaskOverlay
+            key={`mask-${obj.object_id}`}
+            maskUrl={obj.mask_url}
+            isActive={isActive}
+            opacity={isActive ? 0.7 : 0.4}
+          />
+        )
+      })}
+      
+      {/* Traditional Bounding Box Overlays */}
+      {showBoundingBoxes && objects.map((obj, index) => {
         const [x, y, w, h] = obj.bbox
-        // Using given imageWidth/Height as source dimensions; boxes scale with container via percentages
         const leftPct = (x / imageWidth) * 100
         const topPct = (y / imageHeight) * 100
         const widthPct = (w / imageWidth) * 100
         const heightPct = (h / imageHeight) * 100
         const isActive = index === currentObjectIndex
+        
         return (
           <div
-            key={obj.object_id}
-            className={`absolute border-2 rounded ${isActive ? 'border-green-400' : 'border-blue-400'} shadow-[0_0_0_1px_rgba(0,0,0,0.2)]`}
-            style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
-            aria-label={`bbox-${obj.category}`}
+            key={`bbox-${obj.object_id}`}
+            className={`absolute border-2 rounded ${
+              isActive 
+                ? 'border-green-400 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+                : 'border-blue-400 shadow-[0_0_4px_rgba(59,130,246,0.4)]'
+            }`}
+            style={{ 
+              left: `${leftPct}%`, 
+              top: `${topPct}%`, 
+              width: `${widthPct}%`, 
+              height: `${heightPct}%` 
+            }}
           />
+        )
+      })}
+      
+      {/* Object Labels */}
+      {objects.map((obj, index) => {
+        const [x, y, w, h] = obj.bbox
+        const leftPct = (x / imageWidth) * 100
+        const topPct = (y / imageHeight) * 100
+        const isActive = index === currentObjectIndex
+        
+        return (
+          <div
+            key={`label-${obj.object_id}`}
+            className={`absolute text-xs font-semibold px-2 py-1 rounded-full ${
+              isActive 
+                ? 'bg-green-500 text-white shadow-lg' 
+                : 'bg-blue-500 text-white shadow-md'
+            }`}
+            style={{ 
+              left: `${leftPct}%`, 
+              top: `${Math.max(0, topPct - 2)}%`,
+              transform: 'translateY(-100%)'
+            }}
+          >
+            {obj.category} ({(obj.confidence * 100).toFixed(0)}%)
+          </div>
         )
       })}
     </div>
@@ -170,6 +297,8 @@ export function ReviewInterface({
 }: ReviewInterfaceProps) {
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [showProductMatcher, setShowProductMatcher] = useState(false)
+  const [showMasks, setShowMasks] = useState(true)
+  const [showBoundingBoxes, setShowBoundingBoxes] = useState(false)
   
   const currentObject = scene.objects[currentObjectIndex]
   
@@ -219,6 +348,39 @@ export function ReviewInterface({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Visualization Controls */}
+      <div className="flex items-center gap-4 mb-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+        <div className="text-sm font-semibold text-gray-800">Visualization:</div>
+        
+        <button
+          onClick={() => setShowMasks(!showMasks)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+            showMasks 
+              ? 'bg-green-500 text-white shadow-md' 
+              : 'bg-white text-gray-600 border border-gray-300 hover:border-green-400'
+          }`}
+        >
+          {showMasks ? <Eye size={14} /> : <EyeOff size={14} />}
+          SAM2 Masks
+        </button>
+        
+        <button
+          onClick={() => setShowBoundingBoxes(!showBoundingBoxes)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+            showBoundingBoxes 
+              ? 'bg-blue-500 text-white shadow-md' 
+              : 'bg-white text-gray-600 border border-gray-300 hover:border-blue-400'
+          }`}
+        >
+          <div className={`w-3 h-3 border-2 rounded-sm ${showBoundingBoxes ? 'border-white' : 'border-gray-400'}`} />
+          Bounding Boxes
+        </button>
+        
+        <div className="ml-auto">
+          <SegmentationQualityBadge object={currentObject} />
+        </div>
+      </div>
+      
       {/* Image and Object Overlay */}
       <div className="flex-1 relative bg-black rounded-lg overflow-hidden">
         <img
@@ -232,6 +394,8 @@ export function ReviewInterface({
           currentObjectIndex={currentObjectIndex}
           imageWidth={1920} // Would need to get actual dimensions
           imageHeight={1080}
+          showMasks={showMasks}
+          showBoundingBoxes={showBoundingBoxes}
         />
       </div>
       
@@ -242,11 +406,24 @@ export function ReviewInterface({
             <h3 className="text-lg font-semibold">
               Object {currentObjectIndex + 1} of {scene.objects.length}
             </h3>
-            <p className="text-sm text-gray-600">
-              Category: <span className="font-medium">{currentObject.category}</span>
-              {' • '}
-              Confidence: <span className="font-medium">{(currentObject.confidence * 100).toFixed(1)}%</span>
-            </p>
+            <div className="text-sm text-gray-600 space-y-1">
+              <p>
+                Category: <span className="font-medium">{currentObject.category}</span>
+                {' • '}
+                Confidence: <span className="font-medium">{(currentObject.confidence * 100).toFixed(1)}%</span>
+              </p>
+              <p>
+                Segmentation: <span className={`font-medium ${currentObject.mask_url ? 'text-green-600' : 'text-orange-600'}`}>
+                  {currentObject.mask_url ? '✅ SAM2 Neural Network' : '⚠️ Bounding Box Fallback'}
+                </span>
+              </p>
+              {currentObject.bbox && (
+                <p className="text-xs">
+                  Bbox: [{currentObject.bbox.map(n => n.toFixed(0)).join(', ')}]
+                  {currentObject.mask_url && ' + Neural Mask'}
+                </p>
+              )}
+            </div>
           </div>
           
           <div className="flex gap-2">
@@ -401,8 +578,32 @@ export function ReviewInterface({
           </div>
         </div>
         
+        {/* Scene Segmentation Statistics */}
+        <div className="mt-4 pt-4 border-t">
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="bg-green-50 rounded-lg p-2 border border-green-200">
+              <div className="text-lg font-bold text-green-800">
+                {scene.objects.filter(obj => obj.mask_url).length}
+              </div>
+              <div className="text-xs text-green-600">SAM2 Segmented</div>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-2 border border-orange-200">
+              <div className="text-lg font-bold text-orange-800">
+                {scene.objects.filter(obj => !obj.mask_url).length}
+              </div>
+              <div className="text-xs text-orange-600">Bounding Box Only</div>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-2 border border-blue-200">
+              <div className="text-lg font-bold text-blue-800">
+                {((scene.objects.filter(obj => obj.mask_url).length / scene.objects.length) * 100).toFixed(0)}%
+              </div>
+              <div className="text-xs text-blue-600">Segmentation Rate</div>
+            </div>
+          </div>
+        </div>
+        
         {/* Keyboard Shortcuts Help */}
-        <div className="mt-4 pt-4 border-t text-xs text-gray-500">
+        <div className="mt-3 pt-3 border-t text-xs text-gray-500">
           <p>Shortcuts: A=Approve, R=Reject, N=Next, P=Previous, T=Tags, M=Products</p>
         </div>
       </div>

@@ -20,6 +20,11 @@ export default defineConfig({
       }
     }
   },
+  preview: {
+    port: 3001,
+    host: true,
+    allowedHosts: ['creative-insight-production-b0f9.up.railway.app']
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

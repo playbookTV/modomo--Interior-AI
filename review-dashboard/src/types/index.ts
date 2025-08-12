@@ -22,6 +22,26 @@ export interface DetectedObject {
   matched_product_id?: string
   approved?: boolean | null
   created_at: string
+  metadata?: {
+    colors?: {
+      colors?: Array<{
+        rgb: [number, number, number]
+        hex: string
+        name: string
+        percentage: number
+      }>
+      dominant_color?: {
+        rgb: [number, number, number]
+        hex: string
+        name: string
+      }
+      properties?: {
+        brightness: number
+        is_neutral: boolean
+        color_temperature?: string
+      }
+    }
+  }
 }
 
 export interface Product {

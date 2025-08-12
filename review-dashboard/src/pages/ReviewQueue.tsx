@@ -9,7 +9,9 @@ export function ReviewQueue() {
     queryFn: () => getReviewQueue({}),
     retry: 2,
     retryDelay: 3000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: true,  // Refresh when user returns to tab
+    refetchOnMount: true,        // Always refresh when component mounts
+    staleTime: 0                 // Consider data always stale to ensure fresh data
   })
 
   // Debug logging removed

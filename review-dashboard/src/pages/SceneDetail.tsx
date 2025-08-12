@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getReviewQueue, updateReview, approveScene } from '../api/client'
 import { ReviewInterface } from '../components/ReviewInterface'
 import type { DetectedObject, Scene } from '../types'
@@ -8,6 +8,7 @@ import type { DetectedObject, Scene } from '../types'
 export function SceneDetail() {
   const { sceneId } = useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: scenes, isLoading, isError } = useQuery({
     queryKey: ['review-queue'],
@@ -60,6 +61,8 @@ export function SceneDetail() {
   const approveSceneMutation = useMutation({
     mutationFn: (id: string) => approveScene(id),
     onSuccess: () => {
+      // Invalidate review queue cache to remove completed scene
+      queryClient.invalidateQueries({ queryKey: ['review-queue'] })
       navigate('/review')
     },
     onError: (error: any) => {

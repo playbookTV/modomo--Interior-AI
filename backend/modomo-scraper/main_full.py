@@ -156,13 +156,25 @@ except ImportError as e:
 # Add fallback classes if models aren't available
 if not AI_MODELS_AVAILABLE:
     class SAM2Segmenter:
-        def __init__(self):
+        def __init__(self, config=None, device=None):
+            # Accept same parameters as real SAM2Segmenter for compatibility
             try:
                 import torch
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
             except ImportError:
                 self.device = "cpu"
             logger.info(f"Using fallback segmenter on {self.device}")
+        
+        def get_model_info(self):
+            return {
+                "sam2_available": False,
+                "sam2_loaded": False,
+                "fba_available": False,
+                "fba_loaded": False,
+                "device": self.device,
+                "model_type": "fallback",
+                "checkpoint": None
+            }
         
         async def segment(self, image_path: str, bbox: List[float]) -> str:
             """Fallback segmentation using simple mask generation"""
@@ -426,7 +438,9 @@ async def startup():
             
             # Initialize segmenter with appropriate device
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            segmenter = SAM2Segmenter(device=device)
+            from models.sam2_segmenter import SegmentationConfig
+            config = SegmentationConfig(device=device)
+            segmenter = SAM2Segmenter(config=config)
             
             # Get detailed model info
             model_info = segmenter.get_model_info()
@@ -449,8 +463,10 @@ async def startup():
             # Use fallback implementations
             try:
                 detector = GroundingDINODetector()
-                device = "cuda" if torch.cuda.is_available() else "cpu" 
-                segmenter = SAM2Segmenter(device=device)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                from models.sam2_segmenter import SegmentationConfig
+                config = SegmentationConfig(device=device)
+                segmenter = SAM2Segmenter(config=config)
                 embedder = CLIPEmbedder()
             except Exception as fallback_error:
                 logger.error(f"Even fallback initialization failed: {fallback_error}")
@@ -2033,7 +2049,13 @@ async def get_review_queue(
     room_type: str = Query(None, description="Filter by room type"),
     category: str = Query(None, description="Filter by object category")
 ):
-    """Get scenes pending review with detected objects"""
+    """Get scenes pending review with detected objects
+    
+    NOTE: Scenes are filtered out of the queue when:
+    1. Scene status is "approved" (completed review)
+    2. All objects in scene have non-null approved status
+    This prevents scenes from appearing in queue after completion.
+    """
     try:
         if not supabase:
             return {
@@ -2042,14 +2064,14 @@ async def get_review_queue(
             }
         
         # Build query for scenes with objects needing review
-        # First get scenes that have detected objects
+        # First get scenes that have detected objects AND are not already approved
         query = supabase.table("scenes").select("""
-            scene_id, houzz_id, image_url, room_type, style_tags, 
+            scene_id, houzz_id, image_url, room_type, style_tags, status,
             detected_objects(
                 object_id, bbox, category, confidence, tags, 
                 approved, matched_product_id, metadata
             )
-        """)
+        """).neq("status", "approved")
         
         # Add filters
         if room_type:
@@ -2068,6 +2090,11 @@ async def get_review_queue(
         # Format scenes with objects that need review
         scenes = []
         for scene_data in result.data:
+            # Skip scenes that are already approved at the scene level
+            scene_status = scene_data.get("status", "")
+            if scene_status == "approved":
+                continue
+                
             detected_objects = scene_data.get("detected_objects", [])
             
             # Filter for objects that need review (approved is null or missing)
@@ -2157,11 +2184,17 @@ async def approve_scene(scene_id: str):
         if not supabase:
             return {"error": "Database connection not available"}
         
-        # Update scene status
+        # Update scene status to approved
         scene_result = supabase.table("scenes").update({
             "status": "approved",
             "reviewed_at": "now()"
         }).eq("scene_id", scene_id).execute()
+        
+        # Also ensure any remaining null approved statuses are set to avoid edge cases
+        # This handles cases where objects were never individually approved/rejected
+        objects_result = supabase.table("detected_objects").update({
+            "approved": True  # Default to approved when scene is approved
+        }).eq("scene_id", scene_id).is_("approved", "null").execute()
         
         if not scene_result.data:
             return {"error": f"Scene {scene_id} not found"}

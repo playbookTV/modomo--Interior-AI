@@ -43,6 +43,8 @@ transformers==4.36.2
 sentence-transformers==2.2.2
 accelerate==0.25.0
 safetensors==0.4.1
+# CLIP model
+git+https://github.com/openai/CLIP.git
 
 # Computer Vision
 opencv-python-headless>=4.8.0
