@@ -420,17 +420,44 @@ async def startup():
         # Initialize other AI models with retry logic  
         logger.info("🤖 Loading AI models...")
         try:
+            # Initialize detector
             detector = GroundingDINODetector()
-            segmenter = SAM2Segmenter() 
+            logger.info("✅ GroundingDINO detector initialized")
+            
+            # Initialize segmenter with appropriate device
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            segmenter = SAM2Segmenter(device=device)
+            
+            # Get detailed model info
+            model_info = segmenter.get_model_info()
+            if model_info.get("sam2_available"):
+                logger.info(f"🔥 SAM2Segmenter initialized with REAL SAM2 on {device}")
+                if model_info.get("checkpoint"):
+                    logger.info(f"📦 Using checkpoint: {model_info['checkpoint']}")
+            else:
+                logger.warning(f"⚠️ SAM2Segmenter using fallback mode on {device}")
+            logger.info(f"✅ Segmenter ready: {model_info}")
+            
+            # Initialize embedder
             embedder = CLIPEmbedder()
-            logger.info("✅ AI models loaded successfully")
+            logger.info("✅ CLIP embedder initialized")
+            
+            logger.info("✅ All AI models loaded successfully")
         except Exception as ai_error:
             logger.warning(f"AI model loading failed: {ai_error}")
             logger.info("Will continue with fallback AI implementations")
             # Use fallback implementations
-            detector = GroundingDINODetector()
-            segmenter = SAM2Segmenter()
-            embedder = CLIPEmbedder()
+            try:
+                detector = GroundingDINODetector()
+                device = "cuda" if torch.cuda.is_available() else "cpu" 
+                segmenter = SAM2Segmenter(device=device)
+                embedder = CLIPEmbedder()
+            except Exception as fallback_error:
+                logger.error(f"Even fallback initialization failed: {fallback_error}")
+                # Set to None and handle in endpoints
+                detector = None
+                segmenter = None
+                embedder = None
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
@@ -450,10 +477,12 @@ async def health_check():
     ai_status = {
         "detector_loaded": detector is not None,
         "detector_details": detector.get_detector_status() if detector and hasattr(detector, 'get_detector_status') else {},
-        "segmenter_loaded": segmenter is not None, 
+        "segmenter_loaded": segmenter is not None,
+        "segmenter_details": segmenter.get_model_info() if segmenter and hasattr(segmenter, 'get_model_info') else {},
         "embedder_loaded": embedder is not None,
         "color_extractor_loaded": color_extractor is not None,
-        "device": "cuda" if torch.cuda.is_available() else "cpu"
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "pytorch_version": torch.__version__ if torch else "Not available"
     }
     
     return {
@@ -691,6 +720,17 @@ async def run_detection_pipeline(image_url: str, job_id: str):
     try:
         logger.info(f"Starting detection pipeline for {image_url}")
         
+        # Check if models are available
+        if not detector:
+            logger.error("❌ No detector available")
+            return []
+        if not segmenter:
+            logger.error("❌ No segmenter available") 
+            return []
+        if not embedder:
+            logger.error("❌ No embedder available")
+            return []
+        
         # Step 1: Download image from URL
         image_path = f"/tmp/scene_{job_id}.jpg"
         
@@ -709,37 +749,87 @@ async def run_detection_pipeline(image_url: str, job_id: str):
         
         # Step 2: Object detection
         detections = await detector.detect_objects(image_path, MODOMO_TAXONOMY)
+        if not detections:
+            logger.warning(f"⚠️ No objects detected in {image_url}")
+            return []
         
         # Clean up detection results to ensure JSON serialization
         detections = [make_json_serializable(detection) for detection in detections]
         
         # Step 3: Segmentation, embedding, and color extraction for each detection
-        for detection in detections:
-            # Generate mask
-            mask_path = await segmenter.segment(image_path, detection['bbox'])
-            detection['mask_path'] = mask_path
-            
-            # Generate embedding
-            embedding = await embedder.embed_object(image_path, detection['bbox'])
-            detection['embedding'] = make_json_serializable(embedding)
-            
-            # Extract colors from object crop if color extractor is available
-            if color_extractor:
-                color_data = await color_extractor.extract_colors(image_path, detection['bbox'])
-                detection['color_data'] = make_json_serializable(color_data)
+        for i, detection in enumerate(detections):
+            try:
+                # Generate mask
+                mask_path = await segmenter.segment(image_path, detection['bbox'])
+                detection['mask_path'] = mask_path
                 
-                # Add color-based tags
-                if color_data and color_data.get('colors'):
-                    color_names = [c.get('name') for c in color_data['colors'] if c.get('name')]
-                    detection['tags'] = detection.get('tags', []) + color_names[:3]  # Add top 3 color names
-            else:
+                if mask_path:
+                    logger.debug(f"✅ Generated mask for detection {i+1}: {mask_path}")
+                else:
+                    logger.warning(f"⚠️ Failed to generate mask for detection {i+1}")
+                    detection['mask_path'] = None
+            
+                # Generate embedding
+                embedding = await embedder.embed_object(image_path, detection['bbox'])
+                detection['embedding'] = make_json_serializable(embedding)
+                
+                if embedding:
+                    logger.debug(f"✅ Generated embedding for detection {i+1}")
+                else:
+                    logger.warning(f"⚠️ Failed to generate embedding for detection {i+1}")
+                    detection['embedding'] = []
+                
+                # Extract colors from object crop if color extractor is available
+                if color_extractor:
+                    try:
+                        color_data = await color_extractor.extract_colors(image_path, detection['bbox'])
+                        detection['color_data'] = make_json_serializable(color_data)
+                        
+                        # Add color-based tags
+                        if color_data and color_data.get('colors'):
+                            color_names = [c.get('name') for c in color_data['colors'] if c.get('name')]
+                            detection['tags'] = detection.get('tags', []) + color_names[:3]  # Add top 3 color names
+                            logger.debug(f"✅ Extracted colors for detection {i+1}")
+                    except Exception as color_error:
+                        logger.warning(f"⚠️ Color extraction failed for detection {i+1}: {color_error}")
+                        detection['color_data'] = None
+                else:
+                    detection['color_data'] = None
+                    
+            except Exception as processing_error:
+                logger.error(f"❌ Processing failed for detection {i+1}: {processing_error}")
+                detection['mask_path'] = None
+                detection['embedding'] = []
                 detection['color_data'] = None
         
-        logger.info(f"Detection pipeline complete: {len(detections)} objects")
+        # Cleanup temporary image file
+        try:
+            if os.path.exists(image_path):
+                os.unlink(image_path)
+                logger.debug(f"🧹 Cleaned up temporary image: {image_path}")
+        except Exception as cleanup_error:
+            logger.warning(f"Failed to cleanup {image_path}: {cleanup_error}")
+        
+        # Cleanup segmenter temp files if available
+        if segmenter and hasattr(segmenter, 'cleanup'):
+            try:
+                segmenter.cleanup()
+            except Exception as seg_cleanup_error:
+                logger.warning(f"Segmenter cleanup failed: {seg_cleanup_error}")
+        
+        logger.info(f"Detection pipeline complete: {len(detections)} objects processed")
         return detections
         
     except Exception as e:
         logger.error(f"Detection pipeline failed: {e}")
+        
+        # Cleanup on error
+        try:
+            if 'image_path' in locals() and os.path.exists(image_path):
+                os.unlink(image_path)
+        except:
+            pass
+        
         return []
 
 # Include all other endpoints from basic version...

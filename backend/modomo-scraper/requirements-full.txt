@@ -52,6 +52,12 @@ scikit-image>=0.20.0
 ultralytics>=8.0.0  # YOLOv8
 supervision>=0.15.0
 
+# SAM2 Dependencies
+git+https://github.com/facebookresearch/segment-anything-2.git
+iopath>=0.1.9
+hydra-core>=1.1
+omegaconf>=2.1.0
+
 # Logging & Monitoring
 structlog>=23.0.0
 loguru>=0.7.0

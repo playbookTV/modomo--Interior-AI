@@ -1,13 +1,15 @@
 FROM python:3.11-slim
 
-# Install system dependencies for AI and Playwright
+# Install system dependencies for AI, SAM2, and Playwright
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     curl \
     unzip \
+    git \
     gcc \
     g++ \
+    build-essential \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -43,11 +45,14 @@ ENV AI_MODE_BUILD=${AI_MODE}
 ENV AI_MODE=full
 
 # Always install AI dependencies - no fallback to minimal
-RUN echo "🤖 Installing stable AI dependencies for production..." && \
+RUN echo "🤖 Installing AI dependencies with SAM2 for production..." && \
     pip install --upgrade pip && \
     pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-ai-stable.txt && \
-    echo "✅ AI dependencies installed successfully"
+    echo "🔥 Installing SAM2 from source..." && \
+    pip install --no-cache-dir git+https://github.com/facebookresearch/segment-anything-2.git && \
+    pip install --no-cache-dir iopath hydra-core omegaconf && \
+    echo "✅ All AI dependencies including SAM2 installed successfully"
 
 # Install Playwright browsers for web scraping
 RUN python -m playwright install-deps && \
@@ -57,7 +62,14 @@ RUN python -m playwright install-deps && \
 COPY . .
 
 # Create directories for temp files and models
-RUN mkdir -p /app/temp /app/downloads /app/models
+RUN mkdir -p /app/temp /app/downloads /app/models /app/checkpoints
+
+# Download SAM2 model checkpoints
+RUN echo "📦 Downloading SAM2 model checkpoints..." && \
+    cd /app/checkpoints && \
+    wget -q https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt && \
+    wget -q https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt && \
+    echo "✅ SAM2 checkpoints downloaded successfully" || echo "⚠️ SAM2 checkpoint download failed, will use fallback"
 
 # Set environment variables
 ENV PYTHONPATH=/app

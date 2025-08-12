@@ -363,8 +363,9 @@ class CLIPEmbedder:
                 results[query] = matches
         
         return results
-    
-    class ForegroundClipEmbedder:
+
+
+class ForegroundClipEmbedder:
     def __init__(self, model_name="ViT-L/14@336px", device="cuda"):
         self.device = device if torch.cuda.is_available() and device=="cuda" else "cpu"
         self.model, self.preprocess = clip.load(model_name, device=self.device)
