@@ -51,12 +51,20 @@ export function SceneDetail() {
       }
       return updateReview([sanitized])
     },
+    onError: (error: any) => {
+      console.error('Failed to update review:', error.message)
+      // TODO: Add toast notification or error display
+    }
   })
 
   const approveSceneMutation = useMutation({
     mutationFn: (id: string) => approveScene(id),
     onSuccess: () => {
       navigate('/review')
+    },
+    onError: (error: any) => {
+      console.error('Failed to approve scene:', error.message)
+      // TODO: Add toast notification or error display
     }
   })
 
@@ -81,6 +89,12 @@ export function SceneDetail() {
   }
 
   const handleObjectUpdate = (objectId: string, updates: Partial<DetectedObject>) => {
+    // Prevent multiple concurrent requests
+    if (updateReviewMutation.isPending) {
+      console.log('Update already in progress, skipping...')
+      return
+    }
+
     // Optimistic local update
     setLocalScene((prev) => {
       if (!prev) return prev
@@ -93,7 +107,10 @@ export function SceneDetail() {
   }
 
   const handleApproveScene = () => {
-    if (!localScene) return
+    if (!localScene || approveSceneMutation.isPending) {
+      console.log('Scene approval already in progress, skipping...')
+      return
+    }
     approveSceneMutation.mutate(localScene.scene_id)
   }
 
@@ -140,6 +157,8 @@ export function SceneDetail() {
           onApproveScene={handleApproveScene}
           onRejectScene={handleRejectScene}
           isLastObject={isLastObject}
+          isUpdating={updateReviewMutation.isPending}
+          isApprovingScene={approveSceneMutation.isPending}
         />
       </div>
     </div>

@@ -47,6 +47,27 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# JSON serialization helper for NumPy types
+def make_json_serializable(obj):
+    """Convert NumPy types and other non-serializable types to JSON serializable types"""
+    import numpy as np
+    
+    if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif hasattr(obj, 'item') and callable(obj.item):  # Handle numpy scalars
+        return obj.item()
+    return obj
+
 # Import Houzz crawler
 try:
     from crawlers.houzz_crawler import HouzzCrawler
@@ -104,7 +125,7 @@ except ImportError as e:
                 for category_group, items in taxonomy.items():
                     all_categories.extend(items)
                 
-                num_objects = random.randint(2, 5)
+                num_objects = random.randint(4, 8)  # Generate more objects per scene
                 detections = []
                 
                 for i in range(num_objects):
@@ -296,15 +317,18 @@ except Exception as e:
     print(f"❌ Failed to force-initialize color extractor: {e}")
     color_extractor = None
 
-# Configuration
+# Enhanced Configuration for better object detection
 MODOMO_TAXONOMY = {
     "seating": ["sofa", "sectional", "armchair", "dining_chair", "stool", "bench"],
-    "tables": ["coffee_table", "side_table", "dining_table", "console_table", "desk"],
+    "tables": ["coffee_table", "side_table", "dining_table", "console_table", "desk", "nightstand"],
     "storage": ["bookshelf", "cabinet", "dresser", "wardrobe"],
     "lighting": ["pendant_light", "floor_lamp", "table_lamp", "wall_sconce"],
     "soft_furnishings": ["rug", "curtains", "pillow", "blanket"],
     "decor": ["wall_art", "mirror", "plant", "decorative_object"],
-    "bed_bath": ["bed_frame", "mattress", "headboard", "nightstand", "bathtub", "sink_vanity"]
+    "bed_bath": ["bed_frame", "mattress", "headboard", "bathtub", "sink_vanity"],
+    "architectural": ["window", "door", "fireplace"],
+    "electronics": ["tv", "television"],
+    "bathroom_fixtures": ["toilet", "shower"]
 }
 
 # Pydantic models
@@ -425,6 +449,7 @@ async def shutdown():
 async def health_check():
     ai_status = {
         "detector_loaded": detector is not None,
+        "detector_details": detector.get_detector_status() if detector and hasattr(detector, 'get_detector_status') else {},
         "segmenter_loaded": segmenter is not None, 
         "embedder_loaded": embedder is not None,
         "color_extractor_loaded": color_extractor is not None,
@@ -685,6 +710,9 @@ async def run_detection_pipeline(image_url: str, job_id: str):
         # Step 2: Object detection
         detections = await detector.detect_objects(image_path, MODOMO_TAXONOMY)
         
+        # Clean up detection results to ensure JSON serialization
+        detections = [make_json_serializable(detection) for detection in detections]
+        
         # Step 3: Segmentation, embedding, and color extraction for each detection
         for detection in detections:
             # Generate mask
@@ -693,12 +721,12 @@ async def run_detection_pipeline(image_url: str, job_id: str):
             
             # Generate embedding
             embedding = await embedder.embed_object(image_path, detection['bbox'])
-            detection['embedding'] = embedding
+            detection['embedding'] = make_json_serializable(embedding)
             
             # Extract colors from object crop if color extractor is available
             if color_extractor:
                 color_data = await color_extractor.extract_colors(image_path, detection['bbox'])
-                detection['color_data'] = color_data
+                detection['color_data'] = make_json_serializable(color_data)
                 
                 # Add color-based tags
                 if color_data and color_data.get('colors'):
@@ -1110,6 +1138,69 @@ async def debug_color_dependencies():
         "color_extractor_loaded": color_extractor is not None
     }
 
+@app.get("/debug/detector-status")
+async def debug_detector_status():
+    """Debug endpoint to check YOLO and DETR detector status"""
+    if not detector:
+        return {"error": "No detector available"}
+    
+    status = {
+        "detector_available": detector is not None,
+        "detector_type": "Multi-model (YOLO + DETR)"
+    }
+    
+    if hasattr(detector, 'get_detector_status'):
+        status.update(detector.get_detector_status())
+    
+    # Check YOLO dependencies
+    try:
+        from ultralytics import YOLO
+        yolo_status = "✅ Available"
+    except ImportError:
+        yolo_status = "❌ ultralytics package not installed"
+    except Exception as e:
+        yolo_status = f"❌ Error: {e}"
+    
+    status["yolo_package"] = yolo_status
+    
+    return status
+
+@app.get("/jobs/errors/recent")
+async def get_recent_job_errors():
+    """Get recent job errors for frontend display"""
+    if not redis_client:
+        return {"errors": [], "message": "Error tracking not available"}
+    
+    try:
+        # Get all job keys
+        job_keys = redis_client.keys("job:*")
+        recent_errors = []
+        
+        for job_key in job_keys:
+            job_data = redis_client.hgetall(job_key)
+            if job_data and job_data.get("status") in ["failed", "error"]:
+                recent_errors.append({
+                    "job_id": job_key.decode().replace("job:", ""),
+                    "status": job_data.get("status"),
+                    "error_message": job_data.get("message", ""),
+                    "updated_at": job_data.get("updated_at", ""),
+                    "processed": int(job_data.get("processed", 0)),
+                    "total": int(job_data.get("total", 0))
+                })
+        
+        # Sort by updated_at desc, limit to 10 most recent
+        recent_errors.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        recent_errors = recent_errors[:10]
+        
+        return {
+            "errors": recent_errors,
+            "total_error_jobs": len(recent_errors)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get recent errors: {e}")
+        return {"errors": [], "error": str(e)}
+
 # Color processing endpoints  
 @app.post("/process/colors")
 async def process_existing_objects_colors(
@@ -1163,7 +1254,7 @@ async def get_job_status(job_id: str):
             job_data = redis_client.hgetall(job_key)
             
             if job_data:
-                return {
+                job_status = {
                     "job_id": job_id,
                     "status": job_data.get("status", "unknown"),
                     "progress": int(job_data.get("progress", 0)),
@@ -1173,6 +1264,13 @@ async def get_job_status(job_id: str):
                     "started_at": job_data.get("started_at"),
                     "updated_at": job_data.get("updated_at")
                 }
+                
+                # Add error flag for failed jobs to help frontend handle errors
+                if job_status["status"] in ["failed", "error"]:
+                    job_status["has_error"] = True
+                    job_status["error_message"] = job_status["message"]
+                
+                return job_status
         except Exception as e:
             logger.warning(f"Failed to get job status from Redis: {e}")
     
@@ -1333,11 +1431,11 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
             try:
                 job_key = f"job:{job_id}"
                 progress = int((processed / total * 100)) if total > 0 else 0
-                redis_client.hset(job_key, {
+                redis_client.hset(job_key, mapping={
                     "status": status,
-                    "progress": progress,
-                    "total": total,
-                    "processed": processed,
+                    "progress": str(progress),
+                    "total": str(total),
+                    "processed": str(processed),
                     "message": message,
                     "updated_at": datetime.utcnow().isoformat()
                 })
@@ -1363,7 +1461,8 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 async with session.get(info_url) as info_response:
                     if info_response.status == 200:
                         info_data = await info_response.json()
-                        total_rows = info_data.get("dataset_info", {}).get("splits", {}).get("train", {}).get("num_examples", 0)
+                        # HuggingFace API structure: dataset_info -> default -> splits -> train -> num_examples
+                        total_rows = info_data.get("dataset_info", {}).get("default", {}).get("splits", {}).get("train", {}).get("num_examples", 0)
                         if total_rows > 0:
                             # Adjust limit to not exceed available rows
                             max_available = max(0, total_rows - offset)
@@ -1390,8 +1489,17 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 if response.status != 200:
                     error_msg = f"Failed to fetch dataset '{dataset}': HTTP {response.status}"
                     if response.status == 422:
-                        error_msg += " - This usually means the offset/limit exceeds dataset boundaries"
-                    logger.error(f"❌ {error_msg}")
+                        error_msg += f" - Dataset may have fewer than {offset + limit} rows. Try smaller offset/limit values."
+                    elif response.status == 404:
+                        error_msg += " - Dataset not found or config/split doesn't exist"
+                    
+                    # Try to get more details from the response
+                    try:
+                        error_details = await response.text()
+                        logger.error(f"❌ {error_msg}. Response: {error_details}")
+                    except:
+                        logger.error(f"❌ {error_msg}")
+                    
                     update_job_progress("failed", 0, 0, error_msg)
                     return
                 
@@ -1415,26 +1523,44 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 update_job_progress("processing", i, len(rows), f"Processing image {i+1}/{len(rows)}")
                 row = row_data.get("row", {})
                 image_data = row.get("image", {})
-                caption = row.get("caption", "")
+                
+                # Try different caption field names or use empty string
+                caption = row.get("caption", row.get("text", row.get("description", "")))
                 image_url = image_data.get("src", "")
                 
                 if not image_url:
                     logger.warning(f"⚠️ No image URL for row {i}")
                     continue
                 
-                # Create scene ID from row index
-                scene_id = f"hf_houzz_{offset + i}"
+                # Create unique scene ID with UUID
+                scene_id = f"hf_houzz_{uuid.uuid4().hex[:8]}"
                 logger.info(f"🔍 Processing image {i+1}/{len(rows)}: {scene_id}")
                 
-                # Extract room type from caption (basic mapping)
-                room_type = "living_room"  # Default
-                caption_lower = caption.lower()
-                if "bedroom" in caption_lower:
-                    room_type = "bedroom"
-                elif "kitchen" in caption_lower:
-                    room_type = "kitchen"
-                elif "bathroom" in caption_lower:
-                    room_type = "bathroom"
+                # Extract room type from caption or use dataset-specific defaults
+                if caption:
+                    room_type = "living_room"  # Default
+                    caption_lower = caption.lower()
+                    if "bedroom" in caption_lower:
+                        room_type = "bedroom"
+                    elif "kitchen" in caption_lower:
+                        room_type = "kitchen"
+                    elif "bathroom" in caption_lower:
+                        room_type = "bathroom"
+                    elif "office" in caption_lower:
+                        room_type = "office"
+                    elif "dining" in caption_lower:
+                        room_type = "dining_room"
+                else:
+                    # For datasets without captions, use dataset name for hints
+                    dataset_lower = dataset.lower()
+                    if "ikea" in dataset_lower:
+                        room_type = "furniture_showroom"
+                    elif "bedroom" in dataset_lower:
+                        room_type = "bedroom"
+                    elif "kitchen" in dataset_lower:
+                        room_type = "kitchen"
+                    else:
+                        room_type = "living_room"
                 
                 # Step 2: Download and store image in R2
                 r2_key = f"training-data/scenes/{scene_id}.jpg"
@@ -1557,6 +1683,8 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                             try:
                                 # Prepare object data for Supabase
                                 bbox = detection.get("bbox", [0, 0, 100, 100])
+                                # Ensure bbox values are regular Python ints/floats
+                                bbox = [float(x) if isinstance(x, (np.integer, np.floating)) else x for x in bbox]
                                 
                                 # Prepare metadata with color data
                                 metadata = {
@@ -1569,16 +1697,36 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 if color_data:
                                     metadata["colors"] = color_data
                                 
+                                # Ensure all individual values are properly converted
+                                confidence_val = detection.get("confidence", 0.0)
+                                if hasattr(confidence_val, 'item'):
+                                    confidence_val = confidence_val.item()
+                                
+                                embedding_val = detection.get("embedding", [])
+                                if hasattr(embedding_val, 'tolist'):
+                                    embedding_val = embedding_val.tolist()
+                                
                                 object_data = {
                                     "scene_id": scene_db_id,
                                     "bbox": bbox,  # Store as array [x, y, width, height]
-                                    "category": detection.get("category", "unknown"),
-                                    "confidence": float(detection.get("confidence", 0.0)),
-                                    "tags": detection.get("tags", []),
-                                    "clip_embedding_json": detection.get("embedding", []),
+                                    "category": str(detection.get("category", "unknown")),
+                                    "confidence": float(confidence_val),
+                                    "tags": list(detection.get("tags", [])),
+                                    "clip_embedding_json": embedding_val,
                                     "approved": None,  # Needs manual review
                                     "metadata": metadata
                                 }
+                                
+                                # Ensure all data is JSON serializable - apply recursively to catch all nested values
+                                object_data = make_json_serializable(object_data)
+                                
+                                # Double-check specific fields that might still have int64 values
+                                if 'bbox' in object_data:
+                                    object_data['bbox'] = [float(x) for x in object_data['bbox']]
+                                if 'clip_embedding_json' in object_data:
+                                    object_data['clip_embedding_json'] = make_json_serializable(object_data['clip_embedding_json'])
+                                if 'metadata' in object_data:
+                                    object_data['metadata'] = make_json_serializable(object_data['metadata'])
                                 
                                 # Insert object into Supabase
                                 result = supabase.table("detected_objects").insert(object_data).execute()
@@ -1590,8 +1738,11 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                     logger.error(f"❌ No data returned when storing object for scene {scene_id}")
                                     
                             except Exception as obj_error:
-                                logger.error(f"❌ Failed to store detected object for scene {scene_id}: {obj_error}")
-                                continue
+                                error_msg = f"Failed to store detected object for scene {scene_id}: {obj_error}"
+                                logger.error(f"❌ {error_msg}")
+                                update_job_progress("error", i, len(rows), error_msg)
+                                # Don't continue - let user know there's an issue
+                                raise Exception(f"Database storage failed: {error_msg}")
                         
                         logger.info(f"✅ Stored {len(detections)} detected objects for scene {scene_id}")
                         update_job_progress("processing", i, len(rows), f"Stored {len(detections)} objects for image {i+1}/{len(rows)}")
@@ -1600,7 +1751,16 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                         logger.warning("❌ No Supabase client - cannot store detected objects")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to process row {i}: {e}")
+                error_msg = f"Failed to process image {i+1}/{len(rows)}: {str(e)}"
+                logger.error(f"❌ {error_msg}")
+                update_job_progress("error", i, len(rows), error_msg)
+                
+                # For critical errors (like serialization), stop the job
+                if "JSON serializable" in str(e) or "Database storage failed" in str(e):
+                    update_job_progress("failed", i, len(rows), f"Critical error stopped import: {error_msg}")
+                    return
+                
+                # For non-critical errors, continue but notify
                 continue
         
         # Job completed successfully
@@ -1792,9 +1952,10 @@ async def get_review_queue(
             }
         
         # Build query for scenes with objects needing review
+        # First get scenes that have detected objects
         query = supabase.table("scenes").select("""
             scene_id, houzz_id, image_url, room_type, style_tags, 
-            detected_objects!inner(
+            detected_objects(
                 object_id, bbox, category, confidence, tags, 
                 approved, matched_product_id, metadata
             )
@@ -1804,8 +1965,8 @@ async def get_review_queue(
         if room_type:
             query = query.eq("room_type", room_type)
         
-        # Execute query
-        result = query.limit(limit).execute()
+        # Execute query and filter for scenes with unapproved objects
+        result = query.order("created_at", desc=True).limit(limit * 3).execute()  # Get more to filter later
         
         if not result.data:
             return {
@@ -1814,35 +1975,43 @@ async def get_review_queue(
                 "note": "No scenes found for review"
             }
         
-        # Format scenes with objects
+        # Format scenes with objects that need review
         scenes = []
         for scene_data in result.data:
-            scene = {
-                "scene_id": scene_data["scene_id"],
-                "houzz_id": scene_data.get("houzz_id"),
-                "image_url": scene_data["image_url"],
-                "room_type": scene_data.get("room_type"),
-                "style_tags": scene_data.get("style_tags", []),
-                "objects": scene_data.get("detected_objects", [])
-            }
+            detected_objects = scene_data.get("detected_objects", [])
             
-            # Filter objects by category if specified
-            if category and scene["objects"]:
-                scene["objects"] = [obj for obj in scene["objects"] if obj.get("category") == category]
+            # Filter for objects that need review (approved is null or missing)
+            objects_needing_review = []
+            for obj in detected_objects:
+                approved_status = obj.get("approved")
+                # Include objects where approved is null, None, or missing
+                needs_review = approved_status is None
+                
+                # Apply category filter if specified
+                if category and obj.get("category") != category:
+                    continue
+                    
+                if needs_review:
+                    objects_needing_review.append(obj)
             
-            # Only include scenes with objects
-            if scene["objects"]:
+            # Only include scenes that have objects needing review
+            if objects_needing_review:
+                scene = {
+                    "scene_id": scene_data["scene_id"],
+                    "houzz_id": scene_data.get("houzz_id"),
+                    "image_url": scene_data["image_url"],
+                    "room_type": scene_data.get("room_type"),
+                    "style_tags": scene_data.get("style_tags", []),
+                    "objects": objects_needing_review
+                }
                 scenes.append(scene)
+                
+                # Stop when we have enough scenes
+                if len(scenes) >= limit:
+                    break
         
-        return {
-            "scenes": scenes[:limit],
-            "total": len(scenes),
-            "filters": {
-                "room_type": room_type,
-                "category": category,
-                "limit": limit
-            }
-        }
+        # Return just the scenes array to match frontend expectations  
+        return scenes[:limit]
         
     except Exception as e:
         logger.error(f"Review queue failed: {e}")

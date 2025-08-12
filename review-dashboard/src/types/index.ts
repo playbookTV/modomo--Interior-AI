@@ -52,13 +52,19 @@ export interface ProductSimilarity {
 
 export interface ScrapingJob {
   job_id: string
-  job_type: 'scenes' | 'products' | 'detection'
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  job_type?: 'scenes' | 'products' | 'detection' | 'import' | 'export' | 'processing'
+  status: 'pending' | 'running' | 'processing' | 'completed' | 'failed' | 'error'
   progress: number
-  total_items: number
-  processed_items: number
-  created_at: string
+  total: number
+  processed: number
+  total_items?: number  // backwards compatibility
+  processed_items?: number  // backwards compatibility
+  message: string
+  created_at?: string
+  updated_at?: string
   error_message?: string
+  dataset?: string
+  features?: string[]
 }
 
 export interface DatasetExportJob {

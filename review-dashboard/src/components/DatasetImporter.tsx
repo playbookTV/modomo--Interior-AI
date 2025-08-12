@@ -3,7 +3,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Play, Loader2, Database, Sparkles, AlertTriangle, Eye, CheckCircle, Clock, 
   Grid, List, Download, Target, Palette, Filter, BarChart3, ImageIcon, ChevronLeft, 
-  ChevronRight, ArrowLeft 
+  ChevronRight, ArrowLeft, X, Info, AlertCircle
 } from 'lucide-react'
 
 interface ImportJob {
@@ -12,6 +12,14 @@ interface ImportJob {
   message: string
   dataset: string
   features: string[]
+}
+
+interface Toast {
+  id: string
+  type: 'success' | 'error' | 'warning' | 'info'
+  title: string
+  message: string
+  duration?: number
 }
 
 const PRESET_DATASETS = [
@@ -80,6 +88,14 @@ async function fetchCategoryStats(): Promise<any[]> {
   return response.json()
 }
 
+async function fetchRecentErrors(): Promise<any> {
+  const response = await fetch(
+    'https://ovalay-recruitment-production.up.railway.app/jobs/errors/recent'
+  )
+  if (!response.ok) throw new Error('Failed to fetch recent errors')
+  return response.json()
+}
+
 async function fetchObjects(limit = 10, category?: string): Promise<{objects: any[], total: number}> {
   const params = new URLSearchParams({ limit: limit.toString(), offset: '0' })
   if (category) params.set('category', category)
@@ -130,6 +146,24 @@ export function DatasetImporter() {
   const [jobProgress, setJobProgress] = useState<any>(null)
   const [showGallery, setShowGallery] = useState(false)
   const [galleryPage, setGalleryPage] = useState(1)
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  // Toast management functions
+  const addToast = (toast: Omit<Toast, 'id'>) => {
+    const id = Date.now().toString()
+    const newToast = { ...toast, id }
+    setToasts(prev => [...prev, newToast])
+    
+    // Auto-dismiss after duration (default 5 seconds)
+    const duration = toast.duration || 5000
+    if (duration > 0) {
+      setTimeout(() => removeToast(id), duration)
+    }
+  }
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }
 
   const queryClient = useQueryClient()
 
@@ -162,6 +196,14 @@ export function DatasetImporter() {
     refetchInterval: isMonitoring && viewMode === 'objects' ? 3000 : false
   })
 
+  // Fetch recent errors for display
+  const { data: recentErrors, refetch: refetchErrors } = useQuery({
+    queryKey: ['recent-errors'],
+    queryFn: fetchRecentErrors,
+    enabled: true,
+    refetchInterval: 10000 // Check for errors every 10 seconds
+  })
+
   // Job progress tracking
   const { data: currentJobProgress } = useQuery({
     queryKey: ['job-status', lastJob?.job_id],
@@ -171,12 +213,28 @@ export function DatasetImporter() {
     onSuccess: (data) => {
       setJobProgress(data)
       // Stop monitoring when job is complete
-      if (data.status === 'completed' || data.status === 'failed') {
+      if (data.status === 'completed') {
         setIsMonitoring(true) // Keep monitoring dashboard stats for a bit
+        addToast({
+          type: 'success',
+          title: 'Dataset Import Complete!',
+          message: `Successfully processed ${data.processed || 0} images from ${lastJob?.dataset}`,
+          duration: 8000
+        })
         // Auto-refresh dashboard stats
         refetchStats()
         refetchScenes()
         queryClient.invalidateQueries({ queryKey: ['category-stats'] })
+      } else if (data.status === 'failed' || data.status === 'error') {
+        addToast({
+          type: 'error',
+          title: 'Dataset Import Failed',
+          message: data.error_message || data.message || 'Import failed. Check the error details below.',
+          duration: 15000 // Show error longer
+        })
+        setIsMonitoring(false)
+        // Refresh error list when a job fails
+        refetchErrors()
       }
     },
     onError: (error) => {
@@ -205,6 +263,21 @@ export function DatasetImporter() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      
+      addToast({
+        type: 'success',
+        title: 'Dataset Export Complete!',
+        message: `Training dataset downloaded with ${data.total_scenes || 0} scenes and ${data.total_objects || 0} objects`,
+        duration: 6000
+      })
+    },
+    onError: (error: any) => {
+      addToast({
+        type: 'error',
+        title: 'Export Failed',
+        message: error.message || 'Failed to export training dataset',
+        duration: 8000
+      })
     }
   })
 
@@ -226,16 +299,49 @@ export function DatasetImporter() {
     mutationFn: importDataset,
     onSuccess: (data) => {
       setLastJob(data)
+      addToast({
+        type: 'info',
+        title: 'Dataset Import Started',
+        message: `Started importing ${limit} images from ${data.dataset}. Job ID: ${data.job_id}`,
+        duration: 6000
+      })
       // Refresh dashboard stats
       queryClient.invalidateQueries({ queryKey: ['dataset-stats'] })
       queryClient.invalidateQueries({ queryKey: ['category-stats'] })
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      addToast({
+        type: 'error',
+        title: 'Import Failed to Start',
+        message: error.message || 'Failed to start dataset import. Check the dataset URL and try again.',
+        duration: 8000
+      })
       console.error('Import failed:', error)
     }
   })
 
   const handleImport = () => {
+    // Validation
+    if (!datasetUrl || (selectedDataset === 'custom' && !customDataset.trim())) {
+      addToast({
+        type: 'error',
+        title: 'Invalid Dataset',
+        message: 'Please select a dataset or enter a custom HuggingFace dataset ID',
+        duration: 5000
+      })
+      return
+    }
+
+    if (limit < 1 || limit > 100) {
+      addToast({
+        type: 'error',
+        title: 'Invalid Limit',
+        message: 'Number of images must be between 1 and 100',
+        duration: 5000
+      })
+      return
+    }
+
     importMutation.mutate({
       dataset: datasetUrl,
       offset,
@@ -398,7 +504,7 @@ export function DatasetImporter() {
                 <h4 className="font-medium text-slate-900">Import Progress</h4>
                 <span className={`px-2 py-1 rounded text-xs font-medium ${
                   jobProgress.status === 'completed' ? 'bg-green-100 text-green-800' :
-                  jobProgress.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  (jobProgress.status === 'failed' || jobProgress.status === 'error') ? 'bg-red-100 text-red-800' :
                   jobProgress.status === 'processing' ? 'bg-blue-100 text-blue-800' :
                   'bg-gray-100 text-gray-800'
                 }`}>
@@ -416,7 +522,7 @@ export function DatasetImporter() {
                   <div 
                     className={`h-2 rounded-full transition-all duration-300 ${
                       jobProgress.status === 'completed' ? 'bg-green-500' :
-                      jobProgress.status === 'failed' ? 'bg-red-500' :
+                      (jobProgress.status === 'failed' || jobProgress.status === 'error') ? 'bg-red-500' :
                       'bg-blue-500'
                     }`}
                     style={{ width: `${Math.min(100, Math.max(0, jobProgress.progress || 0))}%` }}
@@ -441,13 +547,20 @@ export function DatasetImporter() {
                 </div>
               )}
               
-              {jobProgress.status === 'failed' && (
+              {(jobProgress.status === 'failed' || jobProgress.status === 'error') && (
                 <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center">
-                    <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
-                    <span className="text-sm font-medium text-red-800">
-                      Import failed. Check the logs for details.
-                    </span>
+                  <div className="flex items-start">
+                    <AlertTriangle className="h-5 w-5 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium text-red-800 block mb-1">
+                        Import failed {jobProgress.processed ? `after processing ${jobProgress.processed}/${jobProgress.total} images` : ''}
+                      </span>
+                      {(jobProgress.error_message || jobProgress.message) && (
+                        <div className="text-sm text-red-700 bg-red-100 p-2 rounded border">
+                          <strong>Error:</strong> {jobProgress.error_message || jobProgress.message}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -456,10 +569,65 @@ export function DatasetImporter() {
         </div>
       )}
 
-      {/* Error Display */}
+      {/* Recent Errors Display */}
+      {recentErrors && recentErrors.errors && recentErrors.errors.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium text-red-900 flex items-center">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              Recent Import Errors ({recentErrors.total_error_jobs})
+            </h4>
+            <button
+              onClick={() => refetchErrors()}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              Refresh
+            </button>
+          </div>
+          
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {recentErrors.errors.slice(0, 5).map((error: any, index: number) => (
+              <div key={error.job_id} className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="text-sm font-medium text-red-800">
+                        Job #{error.job_id.slice(-8)}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        error.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
+                      }`}>
+                        {error.status}
+                      </span>
+                    </div>
+                    
+                    {error.error_message && (
+                      <div className="text-sm text-red-700 bg-red-100 p-2 rounded mb-2">
+                        <strong>Error:</strong> {error.error_message}
+                      </div>
+                    )}
+                    
+                    <div className="text-xs text-red-600 space-y-1">
+                      <div>Progress: {error.processed}/{error.total} images processed</div>
+                      {error.updated_at && (
+                        <div>Failed: {new Date(error.updated_at).toLocaleString()}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Import Error Display */}
       {importMutation.error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <h4 className="font-medium text-red-900 mb-2">Import Failed</h4>
+          <h4 className="font-medium text-red-900 mb-2 flex items-center">
+            <AlertTriangle className="h-5 w-5 mr-2" />
+            Failed to Start Import
+          </h4>
           <p className="text-sm text-red-700">
             {importMutation.error.message}
           </p>
@@ -914,6 +1082,47 @@ export function DatasetImporter() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      {toasts.length > 0 && (
+        <div className="fixed top-4 right-4 z-50 space-y-2">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden transform transition-all duration-300 ease-in-out ${
+                toast.type === 'success' ? 'border-l-4 border-green-500' :
+                toast.type === 'error' ? 'border-l-4 border-red-500' :
+                toast.type === 'warning' ? 'border-l-4 border-yellow-500' :
+                'border-l-4 border-blue-500'
+              }`}
+            >
+              <div className="p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    {toast.type === 'success' && <CheckCircle className="h-5 w-5 text-green-400" />}
+                    {toast.type === 'error' && <AlertCircle className="h-5 w-5 text-red-400" />}
+                    {toast.type === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-400" />}
+                    {toast.type === 'info' && <Info className="h-5 w-5 text-blue-400" />}
+                  </div>
+                  <div className="ml-3 w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">{toast.title}</p>
+                    <p className="mt-1 text-sm text-gray-500">{toast.message}</p>
+                  </div>
+                  <div className="ml-4 flex-shrink-0 flex">
+                    <button
+                      className="bg-white rounded-md inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                      onClick={() => removeToast(toast.id)}
+                    >
+                      <span className="sr-only">Close</span>
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

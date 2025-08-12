@@ -5,7 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://ovalay-recruitment
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 15000, // Reduced from 30s to 15s for better UX
   headers: {
     'Content-Type': 'application/json',
   },
@@ -65,17 +65,35 @@ export const getReviewQueue = async (params: {
   category?: string
 }): Promise<Scene[]> => {
   const response = await apiClient.get('/review/queue', { params })
-  return response.data
+  return response.data.scenes || response.data
 }
 
 export const updateReview = async (updates: ReviewUpdate[]): Promise<{ status: string; count: number }> => {
-  const response = await apiClient.post('/review/update', updates)
-  return response.data
+  try {
+    const response = await apiClient.post('/review/update', updates, {
+      timeout: 30000, // Increase timeout for review operations
+    })
+    return response.data
+  } catch (error: any) {
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Review update is taking longer than expected. The operation may still be processing in the background.')
+    }
+    throw error
+  }
 }
 
 export const approveScene = async (sceneId: string): Promise<{ status: string; scene_id: string }> => {
-  const response = await apiClient.post(`/review/approve/${sceneId}`)
-  return response.data
+  try {
+    const response = await apiClient.post(`/review/approve/${sceneId}`, {}, {
+      timeout: 30000, // Increase timeout for scene approval
+    })
+    return response.data
+  } catch (error: any) {
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Scene approval is taking longer than expected. The operation may still be processing in the background.')
+    }
+    throw error
+  }
 }
 
 // Dataset export
@@ -121,6 +139,16 @@ export const getProductSimilarities = async (
 // Jobs monitoring
 export const getActiveJobs = async (): Promise<ScrapingJob[]> => {
   const response = await apiClient.get('/jobs/active')
+  return response.data
+}
+
+export const getJobStatus = async (jobId: string): Promise<ScrapingJob> => {
+  const response = await apiClient.get(`/jobs/${jobId}/status`)
+  return response.data
+}
+
+export const getRecentErrors = async (): Promise<{errors: ScrapingJob[], total_error_jobs: number}> => {
+  const response = await apiClient.get('/jobs/errors/recent')
   return response.data
 }
 

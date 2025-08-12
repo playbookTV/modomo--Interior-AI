@@ -1,12 +1,13 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BarChart3, Eye, Download, Database, Target, Palette } from 'lucide-react'
+import { BarChart3, Eye, Download, Database, Target, Palette, Activity } from 'lucide-react'
 
 export function Navbar() {
   const location = useLocation()
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: <Database size={18} /> },
+    { path: '/jobs', label: 'Jobs', icon: <Activity size={18} /> },
     { path: '/review', label: 'Review', icon: <Eye size={18} /> },
     { path: '/colors', label: 'Colors', icon: <Palette size={18} /> },
     { path: '/analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },

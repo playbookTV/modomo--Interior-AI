@@ -2,7 +2,7 @@
 CLIP embeddings for image-text similarity matching
 """
 
-import torch
+import torch, clip
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 import numpy as np
@@ -363,3 +363,22 @@ class CLIPEmbedder:
                 results[query] = matches
         
         return results
+    
+    class ForegroundClipEmbedder:
+    def __init__(self, model_name="ViT-L/14@336px", device="cuda"):
+        self.device = device if torch.cuda.is_available() and device=="cuda" else "cpu"
+        self.model, self.preprocess = clip.load(model_name, device=self.device)
+
+    def embed_rgba(self, rgba_path: str):
+        img = Image.open(rgba_path).convert("RGBA")
+        np_img = np.array(img)
+        alpha = np_img[:,:,3:4] / 255.0
+        # Composite on neutral gray so backgrounds don’t bias features
+        bg = np.full_like(np_img[:,:,:3], 128, dtype=np.uint8)
+        comp = (alpha * np_img[:,:,:3] + (1-alpha) * bg).astype(np.uint8)
+        comp_pil = Image.fromarray(comp, "RGB")
+        with torch.no_grad():
+            x = self.preprocess(comp_pil).unsqueeze(0).to(self.device)
+            z = self.model.encode_image(x).float()
+            z = z / (z.norm(dim=-1, keepdim=True)+1e-8)
+        return z.squeeze(0).cpu().numpy()

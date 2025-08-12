@@ -4,15 +4,43 @@ import { getReviewQueue } from '../api/client'
 import { Link } from 'react-router-dom'
 
 export function ReviewQueue() {
-  const { data: scenes, isLoading } = useQuery({
+  const { data: scenes, isLoading, error, refetch, isError } = useQuery({
     queryKey: ['review-queue'],
-    queryFn: () => getReviewQueue({})
+    queryFn: () => getReviewQueue({}),
+    retry: 2,
+    retryDelay: 3000,
+    refetchOnWindowFocus: false
   })
+
+  // Debug logging removed
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4 text-xl">⚠️ Backend Service Unavailable</div>
+        <div className="text-sm text-gray-600 mb-4">
+          {error.message.includes('timeout') 
+            ? 'The backend service is not responding. This could be due to the service being down or overloaded.'
+            : error.message
+          }
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry Connection
+        </button>
+        <div className="mt-4 text-xs text-gray-500">
+          If the issue persists, the backend service may need to be restarted.
+        </div>
       </div>
     )
   }
@@ -24,7 +52,7 @@ export function ReviewQueue() {
         <p className="text-gray-600">Review and validate detected objects in scenes</p>
       </div>
 
-      {!scenes || scenes.length === 0 ? (
+      {!scenes || !Array.isArray(scenes) || scenes.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-500 mb-4">
             <svg className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -36,7 +64,7 @@ export function ReviewQueue() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {scenes.map((scene) => (
+          {Array.isArray(scenes) && scenes.map((scene) => (
             <div key={scene.scene_id} className="bg-white rounded-lg p-6 shadow-sm border">
               <div className="flex items-start space-x-4">
                 <img

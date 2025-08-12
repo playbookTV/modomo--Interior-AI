@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Check, X, Edit3, Package } from 'lucide-react'
+import { Check, X, Edit3, Package, Loader2 } from 'lucide-react'
 import { DetectedObject, Scene, Product } from '../types'
 import { searchProducts } from '../api/client'
 
@@ -152,6 +152,8 @@ interface ReviewInterfaceProps {
   onApproveScene: () => void
   onRejectScene: () => void
   isLastObject: boolean
+  isUpdating?: boolean
+  isApprovingScene?: boolean
 }
 
 export function ReviewInterface({
@@ -162,7 +164,9 @@ export function ReviewInterface({
   onPrevious,
   onApproveScene,
   onRejectScene,
-  isLastObject
+  isLastObject,
+  isUpdating = false,
+  isApprovingScene = false
 }: ReviewInterfaceProps) {
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [showProductMatcher, setShowProductMatcher] = useState(false)
@@ -377,19 +381,21 @@ export function ReviewInterface({
           <div className="flex gap-2">
             <button
               onClick={handleReject}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              disabled={isUpdating || isApprovingScene}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Reject (R)"
             >
-              <X size={16} />
+              {isUpdating ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
               Reject
             </button>
             
             <button
               onClick={handleApprove}
-              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              disabled={isUpdating || isApprovingScene}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Approve (A)"
             >
-              <Check size={16} />
+              {isUpdating || isApprovingScene ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
               {isLastObject ? 'Complete Scene' : 'Approve'}
             </button>
           </div>
