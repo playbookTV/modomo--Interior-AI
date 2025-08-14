@@ -79,7 +79,7 @@ class SceneMetadata(BaseModel):
 
 class DetectedObject(BaseModel):
     bbox: List[float] = Field(..., description="[x, y, width, height]")
-    mask_url: Optional[str] = None
+    mask_r2_key: Optional[str] = None  # R2 storage key for segmentation mask
     category: str
     confidence: float
     tags: List[str] = Field(default_factory=list)

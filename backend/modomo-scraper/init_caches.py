@@ -11,6 +11,12 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 
+# Import torch for dtype specifications
+try:
+    import torch
+except ImportError:
+    torch = None
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s')
 logger = logging.getLogger('init_caches')
@@ -68,8 +74,9 @@ class CacheInitializer:
         ]
         
         try:
-            from transformers import AutoModel, AutoTokenizer
+            from transformers import AutoModel, AutoTokenizer, AutoImageProcessor, AutoModelForObjectDetection
             from sentence_transformers import SentenceTransformer
+            import warnings
             
             for model_name in models_to_cache:
                 if self._model_cached(model_name):
@@ -78,18 +85,35 @@ class CacheInitializer:
                     
                 logger.info(f"📦 Downloading {model_name}...")
                 
-                if "sentence-transformers" in model_name:
-                    # Sentence transformer model
-                    SentenceTransformer(model_name)
-                else:
-                    # Regular transformers model
-                    AutoModel.from_pretrained(model_name)
-                    AutoTokenizer.from_pretrained(model_name)
+                # Suppress PyTorch meta parameter warnings during caching
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter.*")
+                    warnings.filterwarnings("ignore", message=".*Missing keys.*discovered while loading pretrained weights.*")
+                    
+                    if "sentence-transformers" in model_name:
+                        # Sentence transformer model
+                        SentenceTransformer(model_name)
+                    else:
+                        # Handle model-specific requirements
+                        if "detr" in model_name or model_name.startswith("facebook/detr"):
+                            # DETR models require an image processor and an object detection head
+                            AutoImageProcessor.from_pretrained(model_name)
+                            model_kwargs = {"device_map": None}
+                            if torch is not None:
+                                model_kwargs["torch_dtype"] = torch.float32
+                            AutoModelForObjectDetection.from_pretrained(model_name, **model_kwargs)
+                        else:
+                            # Regular transformers model (model + tokenizer)
+                            model_kwargs = {"device_map": None}
+                            if torch is not None:
+                                model_kwargs["torch_dtype"] = torch.float32
+                            AutoModel.from_pretrained(model_name, **model_kwargs)
+                            AutoTokenizer.from_pretrained(model_name)
                     
                 logger.info(f"✅ {model_name} cached successfully")
                 
         except Exception as e:
-            logger.warning(f"⚠️ Hugging Face cache initialization failed: {e}")
+            logger.exception(f"⚠️ Hugging Face cache initialization failed: {e}")
             logger.info("🔄 Will download models on first use")
             
     def _model_cached(self, model_name: str) -> bool:

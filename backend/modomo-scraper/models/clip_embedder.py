@@ -18,12 +18,23 @@ class CLIPEmbedder:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Initializing CLIP embedder on {self.device}")
         
-        # Load CLIP model and processor
-        self.model = CLIPModel.from_pretrained(model_name).to(self.device)
-        self.processor = CLIPProcessor.from_pretrained(model_name)
-        
-        # Set model to eval mode
-        self.model.eval()
+        # Load CLIP model and processor with warning suppression
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter.*")
+            warnings.filterwarnings("ignore", message=".*Missing keys.*discovered while loading pretrained weights.*")
+            
+            # Load model and processor
+            self.model = CLIPModel.from_pretrained(
+                model_name,
+                torch_dtype=torch.float32,
+                device_map=None
+            )
+            self.processor = CLIPProcessor.from_pretrained(model_name)
+            
+            # Move to device and set eval mode
+            self.model = self.model.to(self.device)
+            self.model.eval()
         
     async def embed_image(self, image_path: str) -> List[float]:
         """

@@ -59,30 +59,41 @@ RUN echo "🚀 Installing optimized AI dependencies for Railway (with caching)..
     pip install iopath hydra-core omegaconf && \
     echo "✅ All optimized dependencies with enhanced classification installed (cached)"
 
-# Install Playwright browsers for web scraping
-RUN python -m playwright install-deps && \
-    python -m playwright install chromium || echo "⚠️ Failed to install Playwright browsers"
+# Install essential packages for Playwright manually (avoiding version conflicts)
+RUN echo "📦 Installing Playwright system dependencies manually..." && \
+    apt-get update && apt-get install -y \
+    fonts-liberation \
+    fonts-unifont \
+    libgdk-pixbuf-2.0-0 \
+    libjpeg62-turbo \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright browsers only (without system deps to avoid conflicts)
+RUN echo "📦 Installing Playwright browsers..." && \
+    python -m playwright install chromium || echo "⚠️ Playwright browser install failed, will retry at runtime"
 
 # Copy application code
 COPY . .
 
-# Explicitly ensure models directory and __init__.py are copied
-COPY models/ /app/models/
-COPY models/__init__.py /app/models/__init__.py
-
-# Verify models directory structure
-RUN echo "🔍 Verifying models directory structure..." && \
+# Copy models Python source code to /app/models_src/ (safe from volume mount)
+COPY models/ /app/models_src/
+RUN echo "🔧 Copying models to safe location..." && \
+    cp -r /app/models_src/* /app/models/ && \
     ls -la /app/models/ && \
-    echo "🔍 __init__.py exists: $(test -f /app/models/__init__.py && echo 'YES' || echo 'NO')" && \
-    echo "✅ Models directory verification complete"
+    echo "✅ Models Python files secured"
+
+# Update Python path to include models_src as fallback
+ENV PYTHONPATH=/app:/app/models:/app/models_src
 
 # Create directories for temp files and models (Railway Volume will mount to /app/models)
 RUN mkdir -p /app/temp /app/downloads /app/checkpoints
 
-# Setup model directories - models will be stored on Railway Volume
-RUN echo "📦 Setting up model directories for Railway Volume..." && \
-    mkdir -p /app/models/sam2 /app/models/clip /app/models/grounding_dino && \
-    echo "✅ Model directories ready for Railway Volume mount"
+# Setup model cache directories - cached models will be stored on Railway Volume
+# Keep Python source code in /app/models/, cache data in /app/model_cache/
+RUN echo "📦 Setting up model cache directories for Railway Volume..." && \
+    mkdir -p /app/model_cache/sam2 /app/model_cache/clip /app/model_cache/grounding_dino /app/model_cache/yolo && \
+    echo "✅ Model cache directories ready for Railway Volume mount (separate from Python source)"
 
 # Setup additional cache directories for Phase 2 optimization
 RUN echo "🚀 Setting up Phase 2 cache directories..." && \
@@ -97,9 +108,10 @@ ENV PORT=8001
 ENV AI_MODE=${AI_MODE}
 ENV CLASSIFICATION_ENHANCED=true
 ENV KEYWORD_SYSTEM_VERSION=2.0
-ENV MODEL_CACHE_DIR=/app/models
-ENV SAM2_CHECKPOINT_DIR=/app/models/sam2
-ENV CLIP_CACHE_DIR=/app/models/clip
+ENV MODEL_CACHE_DIR=/app/model_cache
+ENV SAM2_CHECKPOINT_DIR=/app/model_cache/sam2
+ENV CLIP_CACHE_DIR=/app/model_cache/clip
+ENV YOLO_CACHE_DIR=/app/model_cache/yolo
 
 # Phase 2 cache optimization environment variables
 ENV TRANSFORMERS_CACHE=/app/cache_volume/huggingface

@@ -99,216 +99,34 @@ logger.info(f"🔍 Models directory exists: {os.path.exists(os.path.join(current
 logger.info(f"🔍 __init__.py exists: {os.path.exists(os.path.join(current_dir, 'models', '__init__.py'))}")
 logger.info(f"🔍 Python path includes current dir: {current_dir in sys.path}")
 
-# Import real AI implementations if available
+# Force proper AI model imports - no fallbacks allowed!
+AI_MODELS_AVAILABLE = False
 try:
+    # Run the models import fix first
+    try:
+        from fix_models_import import fix_models_import
+        logger.info("🔧 Running models import fix in main_full.py...")
+        fix_models_import()
+    except Exception as fix_e:
+        logger.warning(f"⚠️ Models import fix failed: {fix_e}")
+    
+    # Now attempt the real imports
     from models.grounding_dino import GroundingDINODetector
     from models.sam2_segmenter import SAM2Segmenter  
     from models.clip_embedder import CLIPEmbedder
     from models.color_extractor import ColorExtractor
     AI_MODELS_AVAILABLE = True
-    logger.info("✅ AI model classes imported successfully")
-except ImportError as e:
-    AI_MODELS_AVAILABLE = False
-    logger.warning(f"⚠️ AI models not available: {e}")
-    if AI_DEPENDENCIES_AVAILABLE:
-        logger.info("🤖 AI dependencies detected - should work on next deploy")
-    else:
-        logger.info("💡 AI dependencies not available (No module named 'torch') - starting basic mode")
+    logger.info("✅ AI model classes imported successfully - NO FALLBACKS NEEDED!")
     
-    # Fallback implementations for when models aren't available
-    class GroundingDINODetector:
-        def __init__(self):
-            try:
-                import torch
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                self.device = "cpu"
-            logger.info(f"Using fallback detector on {self.device}")
-        
-        async def detect_objects(self, image_path: str, taxonomy: dict) -> List[dict]:
-            """Fallback detector with realistic random detections"""
-            try:
-                from PIL import Image
-                import random
-                
-                image = Image.open(image_path).convert("RGB")
-                width, height = image.size
-                
-                all_categories = []
-                for category_group, items in taxonomy.items():
-                    all_categories.extend(items)
-                
-                num_objects = random.randint(4, 8)  # Generate more objects per scene
-                detections = []
-                
-                for i in range(num_objects):
-                    category = random.choice(all_categories)
-                    max_size = min(width, height) // 3
-                    min_size = min(width, height) // 10
-                    box_width = random.randint(min_size, max_size)
-                    box_height = random.randint(min_size, max_size)
-                    x = random.randint(0, width - box_width)
-                    y = random.randint(0, height - box_height)
-                    
-                    detection = {
-                        'bbox': [x, y, box_width, box_height],
-                        'category': category,
-                        'confidence': round(random.uniform(0.7, 0.95), 3),
-                        'raw_label': f'{category} . furniture',
-                        'tags': [category, 'furniture']
-                    }
-                    detections.append(detection)
-                
-                logger.info(f"Generated {len(detections)} fallback detections for {image_path}")
-                return detections
-                
-            except Exception as e:
-                logger.error(f"Fallback detection failed for {image_path}: {e}")
-                return []
-
-# Add fallback classes if models aren't available
-if not AI_MODELS_AVAILABLE:
-    class SAM2Segmenter:
-        def __init__(self, config=None, device=None):
-            # Accept same parameters as real SAM2Segmenter for compatibility
-            try:
-                import torch
-                self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-            except ImportError:
-                self.device = "cpu"
-            logger.info(f"Using fallback segmenter on {self.device}")
-        
-        def get_model_info(self):
-            return {
-                "sam2_available": False,
-                "sam2_loaded": False,
-                "fba_available": False,
-                "fba_loaded": False,
-                "device": self.device,
-                "model_type": "fallback",
-                "checkpoint": None
-            }
-        
-        async def segment(self, image_path: str, bbox: List[float]) -> str:
-            """Fallback segmentation using simple mask generation"""
-            try:
-                import cv2
-                import uuid
-                
-                image = cv2.imread(image_path)
-                x, y, w, h = [int(coord) for coord in bbox]
-                
-                mask_path = f"/tmp/masks/mask_{uuid.uuid4().hex}.png"
-                import numpy as np
-                mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
-                mask[y:y+h, x:x+w] = 255
-                
-                # Apply some smoothing
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-                mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-                cv2.imwrite(mask_path, mask)
-                
-                logger.info(f"Generated fallback mask for bbox {bbox}")
-                return mask_path
-                
-            except Exception as e:
-                logger.error(f"Fallback segmentation failed for {image_path}: {e}")
-                return None
-
-    class CLIPEmbedder:
-        def __init__(self):
-            try:
-                import torch
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                self.device = "cpu"
-            logger.info(f"Using fallback embedder on {self.device}")
-            self.embedding_dim = 512
-        
-        async def embed_object(self, image_path: str, bbox: List[float]) -> List[float]:
-            """Generate fallback embedding (random but consistent for same input)"""
-            try:
-                import hashlib
-                import random
-                
-                # Create deterministic embedding based on image path and bbox
-                combined_string = f"{image_path}_{bbox}"
-                hash_obj = hashlib.md5(combined_string.encode())
-                seed = int.from_bytes(hash_obj.digest()[:4], 'big')
-                
-                random.seed(seed)
-                embedding = [random.gauss(0, 0.1) for _ in range(self.embedding_dim)]
-                
-                # Normalize
-                norm = sum(x*x for x in embedding) ** 0.5
-                embedding = [x/norm for x in embedding]
-                
-                logger.info(f"Generated fallback embedding for object at {bbox}")
-                return embedding
-                
-            except Exception as e:
-                logger.error(f"Fallback embedding failed for {image_path}: {e}")
-                return [0.0] * self.embedding_dim
-
-    class ColorExtractor:
-        def __init__(self):
-            logger.info("Using fallback color extractor")
-        
-        async def extract_colors(self, image_path: str, bbox: List[float] = None) -> dict:
-            """Fallback color extraction using basic image analysis"""
-            try:
-                from PIL import Image
-                import random
-                
-                image = Image.open(image_path).convert("RGB")
-                if bbox:
-                    x, y, w, h = [int(coord) for coord in bbox]
-                    image = image.crop((x, y, x + w, y + h))
-                
-                # Get average color as fallback
-                pixels = list(image.getdata())
-                if pixels:
-                    avg_color = tuple(int(sum(channel) / len(pixels)) for channel in zip(*pixels))
-                else:
-                    avg_color = (128, 128, 128)
-                
-                # Generate some basic color names
-                r, g, b = avg_color
-                if r > 200 and g > 200 and b > 200:
-                    color_name = "white"
-                elif r < 50 and g < 50 and b < 50:
-                    color_name = "black"
-                elif abs(r - g) < 30 and abs(g - b) < 30:
-                    color_name = "gray"
-                elif r > g and r > b:
-                    color_name = "red" if r > 150 else "brown"
-                elif g > r and g > b:
-                    color_name = "green"
-                elif b > r and b > g:
-                    color_name = "blue"
-                else:
-                    color_name = "beige"
-                
-                return {
-                    "colors": [{
-                        "rgb": avg_color,
-                        "hex": f"#{r:02x}{g:02x}{b:02x}",
-                        "name": color_name,
-                        "percentage": 100.0
-                    }],
-                    "dominant_color": {
-                        "rgb": avg_color,
-                        "hex": f"#{r:02x}{g:02x}{b:02x}",
-                        "name": color_name
-                    },
-                    "properties": {
-                        "brightness": sum(avg_color) / (3 * 255),
-                        "is_neutral": abs(r - g) < 30 and abs(g - b) < 30
-                    }
-                }
-            except Exception as e:
-                logger.error(f"Fallback color extraction failed: {e}")
-                return {"colors": [], "dominant_color": None}
+except ImportError as e:
+    logger.error(f"❌ CRITICAL: AI models import failed: {e}")
+    logger.error("❌ This should not happen - models should be available!")
+    # Don't create fallbacks - let it fail properly so we can fix the root issue
+    raise ImportError(f"Required AI models not available: {e}")
+except Exception as e:
+    logger.error(f"❌ CRITICAL: Unexpected error during model import: {e}")
+    raise
+# NO MORE FALLBACKS - REAL MODELS ONLY!
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -381,7 +199,7 @@ class DetectedObject(BaseModel):
 # Startup/shutdown events
 @app.on_event("startup")
 async def startup():
-    global supabase, db_pool, redis_client, detector, segmenter, embedder
+    global supabase, db_pool, redis_client, detector, segmenter, embedder, color_extractor
     
     try:
         logger.info("Starting Modomo Scraper (Full AI Mode)")
@@ -410,17 +228,9 @@ async def startup():
             logger.error(f"❌ Missing required Supabase credentials: {', '.join(missing)}")
             supabase = None
         
-        # Database connection with fallback
-        DATABASE_URL = os.getenv("DATABASE_URL_CLOUD") or os.getenv("DATABASE_URL", "postgresql://reroom:reroom_dev_pass@localhost:5432/reroom_dev")
-        logger.info(f"Attempting database connection to: {DATABASE_URL[:30]}...")
-        
-        try:
-            db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10, command_timeout=30)
-            logger.info("✅ Connected to database")
-        except Exception as db_error:
-            logger.warning(f"Database connection failed: {db_error}")
-            logger.info("Will continue without database - using in-memory storage")
-            db_pool = None
+        # Use Supabase as primary database (already connected above)
+        logger.info("✅ Using Supabase as primary database")
+        db_pool = None  # Not needed - using Supabase client instead
         
         # Redis connection with fallback
         REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -450,9 +260,24 @@ async def startup():
         # Initialize other AI models with retry logic  
         logger.info("🤖 Loading AI models...")
         try:
-            # Initialize detector
+            # Ensure YOLO is available for multi-model approach
+            logger.info("🔍 Verifying YOLO availability for multi-model detection...")
+            try:
+                from ultralytics import YOLO
+                # Test YOLO initialization
+                test_yolo = YOLO('yolov8n.pt')  # Use nano model for quick test
+                logger.info("✅ YOLO verified and ready for multi-model detection")
+            except ImportError as yolo_error:
+                logger.error(f"❌ YOLO not available: {yolo_error}")
+                raise RuntimeError("YOLO is required for multi-model (YOLO + DETR) approach")
+            except Exception as yolo_error:
+                logger.error(f"❌ YOLO initialization failed: {yolo_error}")
+                raise RuntimeError(f"YOLO initialization failed: {yolo_error}")
+            
+            # Initialize detector (GroundingDINO as DETR component)
             detector = GroundingDINODetector()
-            logger.info("✅ GroundingDINO detector initialized")
+            logger.info("✅ GroundingDINO (DETR) detector initialized")
+            logger.info("✅ Multi-model (YOLO + DETR) detection system ready")
             
             # Initialize segmenter with appropriate device
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -476,22 +301,14 @@ async def startup():
             
             logger.info("✅ All AI models loaded successfully")
         except Exception as ai_error:
-            logger.warning(f"AI model loading failed: {ai_error}")
-            logger.info("Will continue with fallback AI implementations")
-            # Use fallback implementations
-            try:
-                detector = GroundingDINODetector()
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                from models.sam2_segmenter import SegmentationConfig
-                config = SegmentationConfig(device=device)
-                segmenter = SAM2Segmenter(config=config)
-                embedder = CLIPEmbedder()
-            except Exception as fallback_error:
-                logger.error(f"Even fallback initialization failed: {fallback_error}")
-                # Set to None and handle in endpoints
-                detector = None
-                segmenter = None
-                embedder = None
+            logger.error(f"❌ CRITICAL: AI model loading failed: {ai_error}")
+            logger.error("❌ NO MORE FALLBACKS - REAL MODELS ONLY!")
+            logger.error("❌ This should not happen in production - models should be available!")
+            # Set to None to fail fast and surface the real issue
+            detector = None
+            segmenter = None
+            embedder = None
+            raise RuntimeError(f"AI model initialization failed: {ai_error}")
         
     except Exception as e:
         logger.error(f"Startup error: {e}")
@@ -578,6 +395,9 @@ async def extract_colors_from_url(
                 return {"error": "Invalid bbox format. Use: x,y,width,height"}
         
         # Extract colors
+        if color_extractor is None:
+            return {"error": "Color extraction service is not available"}
+        
         color_data = await color_extractor.extract_colors(temp_path, bbox_coords)
         
         # Cleanup
@@ -1279,7 +1099,7 @@ async def debug_color_dependencies():
 
 @app.get("/debug/detector-status")
 async def debug_detector_status():
-    """Debug endpoint to check YOLO and DETR detector status"""
+    """Debug endpoint to check multi-model detector status"""
     if not detector:
         return {"error": "No detector available"}
     
@@ -1291,14 +1111,14 @@ async def debug_detector_status():
     if hasattr(detector, 'get_detector_status'):
         status.update(detector.get_detector_status())
     
-    # Check YOLO dependencies
+    # Check YOLO dependencies (required for multi-model approach)
     try:
         from ultralytics import YOLO
-        yolo_status = "✅ Available"
+        yolo_status = "✅ Available (required for multi-model detection)"
     except ImportError:
-        yolo_status = "❌ ultralytics package not installed"
+        yolo_status = "❌ Not installed (REQUIRED for multi-model detection)"
     except Exception as e:
-        yolo_status = f"❌ Error: {e}"
+        yolo_status = f"❌ Error: {e} (REQUIRED for multi-model detection)"
     
     status["yolo_package"] = yolo_status
     
@@ -1317,15 +1137,21 @@ async def get_recent_job_errors():
         
         for job_key in job_keys:
             job_data = redis_client.hgetall(job_key)
-            if job_data and job_data.get("status") in ["failed", "error"]:
-                recent_errors.append({
-                    "job_id": job_key.decode().replace("job:", ""),
-                    "status": job_data.get("status"),
-                    "error_message": job_data.get("message", ""),
-                    "updated_at": job_data.get("updated_at", ""),
-                    "processed": int(job_data.get("processed", 0)),
-                    "total": int(job_data.get("total", 0))
-                })
+            if job_data:
+                # Convert bytes to strings for proper comparison and access
+                job_status = {key.decode() if isinstance(key, bytes) else key: 
+                             value.decode() if isinstance(value, bytes) else value 
+                             for key, value in job_data.items()}
+                
+                if job_status.get("status") in ["failed", "error"]:
+                    recent_errors.append({
+                        "job_id": job_key.decode().replace("job:", ""),
+                        "status": job_status.get("status"),
+                        "error_message": job_status.get("message", ""),
+                        "updated_at": job_status.get("updated_at", ""),
+                        "processed": int(job_status.get("processed", 0)),
+                        "total": int(job_status.get("total", 0))
+                    })
         
         # Sort by updated_at desc, limit to 10 most recent
         recent_errors.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -1383,46 +1209,7 @@ async def start_scene_scraping(
         "features": ["scraping", "object_detection", "segmentation", "embeddings"]
     }
 
-@app.get("/jobs/{job_id}/status")
-async def get_job_status(job_id: str):
-    """Get status of any import job"""
-    if redis_client:
-        try:
-            # Check Redis for job status
-            job_key = f"job:{job_id}"
-            job_data = redis_client.hgetall(job_key)
-            
-            if job_data:
-                job_status = {
-                    "job_id": job_id,
-                    "status": job_data.get("status", "unknown"),
-                    "progress": int(job_data.get("progress", 0)),
-                    "total": int(job_data.get("total", 0)),
-                    "processed": int(job_data.get("processed", 0)),
-                    "message": job_data.get("message", ""),
-                    "started_at": job_data.get("started_at"),
-                    "updated_at": job_data.get("updated_at")
-                }
-                
-                # Add error flag for failed jobs to help frontend handle errors
-                if job_status["status"] in ["failed", "error"]:
-                    job_status["has_error"] = True
-                    job_status["error_message"] = job_status["message"]
-                
-                return job_status
-        except Exception as e:
-            logger.warning(f"Failed to get job status from Redis: {e}")
-    
-    # Fallback status based on recent scenes/objects
-    return {
-        "job_id": job_id,
-        "status": "completed",
-        "progress": 100,
-        "total": 0,
-        "processed": 0,
-        "message": "Job tracking not available - check dashboard stats",
-        "note": "Enable Redis for detailed job tracking"
-    }
+# Removed duplicate endpoint - using the proper one below
 
 @app.post("/import/huggingface-dataset")
 async def import_huggingface_dataset(
@@ -2423,13 +2210,29 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 
                 # Step 2: Download and store image in R2
                 r2_key = f"training-data/scenes/{scene_id}.jpg"
-                r2_url = f"https://photos.reroom.app/{r2_key}"
                 
                 # Check R2 credentials before attempting upload
                 r2_endpoint = os.getenv('CLOUDFLARE_R2_ENDPOINT')
                 r2_access_key = os.getenv('CLOUDFLARE_R2_ACCESS_KEY_ID')
                 r2_secret_key = os.getenv('CLOUDFLARE_R2_SECRET_ACCESS_KEY')
                 r2_bucket = os.getenv('CLOUDFLARE_R2_BUCKET', 'reroom')
+                
+                # Construct proper R2 public URL
+                # Use custom domain if configured, otherwise use R2 native URL
+                r2_custom_domain = os.getenv('CLOUDFLARE_R2_PUBLIC_DOMAIN')  # e.g., photos.reroom.app
+                if r2_custom_domain:
+                    r2_url = f"https://{r2_custom_domain}/{r2_key}"
+                elif r2_endpoint:
+                    # Extract account ID from endpoint to build public URL
+                    # R2 endpoint format: https://{account_id}.r2.cloudflarestorage.com
+                    if 'r2.cloudflarestorage.com' in r2_endpoint:
+                        account_id = r2_endpoint.split('//')[1].split('.')[0]
+                        r2_url = f"https://{account_id}.r2.cloudflarestorage.com/{r2_bucket}/{r2_key}"
+                    else:
+                        # Fallback for custom endpoints
+                        r2_url = f"{r2_endpoint.rstrip('/')}/{r2_bucket}/{r2_key}"
+                else:
+                    r2_url = f"https://storage.googleapis.com/{r2_bucket}/{r2_key}"  # Generic fallback
                 
                 if r2_endpoint and r2_access_key and r2_secret_key:
                     try:
@@ -2483,20 +2286,26 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                         # Pre-classify image type based on available data
                         image_classification = await classify_image_type(image_url, caption)
                         
+                        # Build scene data with only columns that exist in Supabase
                         scene_data = {
                             "houzz_id": scene_id,
                             "image_url": image_url,
                             "image_r2_key": r2_key,
-                            "image_type": image_classification["image_type"],
-                            "is_primary_object": image_classification["is_primary_object"],
-                            "primary_category": image_classification["primary_category"],
+                            # TODO: Add these columns back when Supabase schema is updated:
+                            # "image_type": image_classification["image_type"],
+                            # "is_primary_object": image_classification["is_primary_object"], 
+                            # "primary_category": image_classification["primary_category"],
                             "room_type": room_type,
                             "style_tags": [caption] if caption else [],
                             "color_tags": [],
                             "status": "scraped",
                             "metadata": {
                                 "classification_confidence": image_classification["confidence"],
-                                "classification_reason": image_classification["reason"]
+                                "classification_reason": image_classification["reason"],
+                                # Store the classification data in metadata for now
+                                "image_type": image_classification["image_type"],
+                                "is_primary_object": image_classification["is_primary_object"],
+                                "primary_category": image_classification["primary_category"]
                             }
                         }
                         
@@ -2566,14 +2375,14 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 if color_data:
                                     metadata["colors"] = color_data
                                 
-                                # Handle mask URL from mask_path
-                                mask_url = None
+                                # Handle mask R2 key from mask_path
+                                mask_r2_key = None
                                 mask_path = detection.get("mask_path")
                                 if mask_path and os.path.exists(mask_path):
-                                    # Generate URL for the static file endpoint
+                                    # Generate R2 key for the mask file
                                     mask_filename = os.path.basename(mask_path)
-                                    mask_url = f"/masks/{mask_filename}"
-                                    logger.info(f"Generated mask URL: {mask_url} for path: {mask_path}")
+                                    mask_r2_key = f"masks/{mask_filename}"
+                                    logger.info(f"Generated mask R2 key: {mask_r2_key} for path: {mask_path}")
                                 else:
                                     logger.warning(f"No valid mask path found: {mask_path}")
                                 
@@ -2595,11 +2404,15 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                     "clip_embedding_json": embedding_val,
                                     "approved": None,  # Needs manual review
                                     "metadata": metadata,
-                                    "mask_url": mask_url  # Add mask URL if available
+                                    "mask_r2_key": mask_r2_key  # Add mask R2 key if available
                                 }
                                 
                                 # Ensure all data is JSON serializable - apply recursively to catch all nested values
                                 object_data = make_json_serializable(object_data)
+                                
+                                # Remove any mask_url field that might have been accidentally included
+                                if 'mask_url' in object_data:
+                                    del object_data['mask_url']
                                 
                                 # Double-check specific fields that might still have int64 values
                                 if 'bbox' in object_data:
@@ -2728,10 +2541,23 @@ async def export_training_dataset(
                 
                 # Add R2 storage information for training
                 if scene["image_r2_key"] and include_r2_urls:
+                    # Use the same URL construction logic as above
+                    r2_custom_domain = os.getenv('CLOUDFLARE_R2_PUBLIC_DOMAIN')
+                    r2_endpoint = os.getenv('CLOUDFLARE_R2_ENDPOINT')
+                    r2_bucket = os.getenv('CLOUDFLARE_R2_BUCKET', 'reroom')
+                    
+                    if r2_custom_domain:
+                        public_url = f"https://{r2_custom_domain}/{scene['image_r2_key']}"
+                    elif r2_endpoint and 'r2.cloudflarestorage.com' in r2_endpoint:
+                        account_id = r2_endpoint.split('//')[1].split('.')[0]
+                        public_url = f"https://{account_id}.r2.cloudflarestorage.com/{r2_bucket}/{scene['image_r2_key']}"
+                    else:
+                        public_url = f"https://storage.googleapis.com/{r2_bucket}/{scene['image_r2_key']}"
+                        
                     scene_data["r2_storage"] = {
                         "key": scene["image_r2_key"],
-                        "public_url": f"https://photos.reroom.app/{scene['image_r2_key']}",
-                        "download_url": f"https://photos.reroom.app/{scene['image_r2_key']}"
+                        "public_url": public_url,
+                        "download_url": public_url
                     }
                     
                     # For local training, provide the expected local path structure

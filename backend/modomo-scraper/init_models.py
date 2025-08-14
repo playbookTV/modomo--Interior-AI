@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 MODEL_CONFIG = {
     "sam2_hiera_large": {
         "url": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt",
-        "path": "/app/models/sam2/sam2_hiera_large.pt",
+        "path": "/app/model_cache/sam2/sam2_hiera_large.pt",
         "size_mb": 223,
         "sha256": None  # Add if available
     },
     "sam2_hiera_base_plus": {
         "url": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt", 
-        "path": "/app/models/sam2/sam2_hiera_base_plus.pt",
+        "path": "/app/model_cache/sam2/sam2_hiera_base_plus.pt",
         "size_mb": 142,
         "sha256": None
     }
@@ -84,7 +84,7 @@ def init_models() -> bool:
     logger.info("🚀 Initializing AI models...")
     
     # Check Railway Volume mount
-    volume_path = "/app/models"
+    volume_path = "/app/model_cache"
     if not os.path.exists(volume_path):
         logger.info(f"📁 Creating models directory: {volume_path}")
         os.makedirs(volume_path, exist_ok=True)

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS detected_objects (
     scene_id UUID NOT NULL REFERENCES scenes(scene_id) ON DELETE CASCADE,
     bbox DECIMAL[] NOT NULL CHECK (array_length(bbox, 1) = 4), -- [x, y, width, height]
     mask_r2_key TEXT, -- R2 storage key for segmentation mask
+    mask_url TEXT, -- Public URL for segmentation mask
     category VARCHAR(100) NOT NULL,
     confidence DECIMAL(5,4) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
     tags TEXT[] DEFAULT '{}',

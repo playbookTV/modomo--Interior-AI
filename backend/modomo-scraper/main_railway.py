@@ -46,6 +46,30 @@ def check_ai_dependencies():
 def get_app():
     """Get the appropriate app - always full AI mode for production"""
     
+    # Restore model Python files after Railway Volume mount
+    print("🔧 Restoring model Python files after Railway Volume mount...")
+    try:
+        from restore_models import restore_model_files
+        restore_success = restore_model_files()
+        if restore_success:
+            print("✅ Model Python files restored successfully")
+        else:
+            print("❌ Failed to restore model Python files")
+    except Exception as e:
+        print(f"❌ Model restoration failed: {e}")
+    
+    # Comprehensive fix for models import issues
+    print("🔧 Running comprehensive models import fix...")
+    try:
+        from fix_models_import import fix_models_import
+        fix_success = fix_models_import()
+        if fix_success:
+            print("✅ Models import fix completed successfully")
+        else:
+            print("⚠️ Models import fix had issues - will use fallbacks")
+    except Exception as e:
+        print(f"⚠️ Failed to run models import fix: {e}")
+
     # Initialize models from Railway Volume on startup
     print("🤖 Initializing AI models from Railway Volume...")
     try:

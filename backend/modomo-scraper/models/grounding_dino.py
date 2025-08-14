@@ -57,15 +57,39 @@ class GroundingDINODetector:
             self.yolo_available = False
     
     def _init_detr_detector(self):
-        """Initialize DETR detector as fallback"""
+        """Initialize DETR detector as fallback with proper parameter loading"""
         try:
-            self.detr_detector = pipeline(
-                "object-detection",
-                model="facebook/detr-resnet-50",
-                device=0 if self.device == "cuda" else -1
-            )
+            # Import required components explicitly to control loading
+            from transformers import DetrForObjectDetection, DetrImageProcessor
+            import warnings
+            
+            # Suppress the specific meta parameter warnings during model loading
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*copying from a non-meta parameter.*")
+                warnings.filterwarnings("ignore", message=".*Missing keys.*discovered while loading pretrained weights.*")
+                
+                # Load model and processor explicitly with proper device handling
+                model = DetrForObjectDetection.from_pretrained(
+                    "facebook/detr-resnet-50",
+                    torch_dtype=torch.float32,
+                    device_map=None  # We'll handle device placement manually
+                )
+                processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
+                
+                # Move to device after loading to avoid meta parameter issues
+                model = model.to(self.device)
+                model.eval()  # Set to evaluation mode
+                
+                # Create pipeline with pre-loaded components
+                self.detr_detector = pipeline(
+                    "object-detection",
+                    model=model,
+                    image_processor=processor,
+                    device=0 if self.device == "cuda" else -1
+                )
+                
             self.detr_available = True
-            logger.info("✅ DETR detector initialized successfully (fallback)")
+            logger.info("✅ DETR detector initialized successfully (fallback) - warnings suppressed")
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to initialize DETR detector: {e}")
