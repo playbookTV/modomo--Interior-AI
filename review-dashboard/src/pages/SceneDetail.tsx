@@ -24,7 +24,22 @@ export function SceneDetail() {
 
   useEffect(() => {
     // Sync local state when data (or route) changes
-    if (initialScene) setLocalScene(initialScene)
+    if (initialScene) {
+      setLocalScene(initialScene)
+      
+      // Debug: Log SAM2 segmentation status
+      console.log('Scene loaded - SAM2 Analysis:')
+      console.log(`Total objects: ${initialScene.objects.length}`)
+      console.log(`Objects with SAM2 masks: ${initialScene.objects.filter(obj => obj.mask_url).length}`)
+      console.log(`Bounding box fallbacks: ${initialScene.objects.filter(obj => !obj.mask_url).length}`)
+      
+      initialScene.objects.forEach((obj, idx) => {
+        console.log(`Object ${idx + 1}: ${obj.category} - ${obj.mask_url ? '✅ SAM2 mask' : '⚠️ Bbox only'}`)
+        if (obj.mask_url) {
+          console.log(`  Mask URL: ${obj.mask_url}`)
+        }
+      })
+    }
   }, [initialScene])
 
   const firstUnreviewedIndex = useMemo(() => {

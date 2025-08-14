@@ -9,7 +9,8 @@ import {
   Package,
   CheckCircle,
   AlertCircle,
-  TrendingUp
+  TrendingUp,
+  TestTube
 } from 'lucide-react'
 import { getDatasetStats, getCategoryStats, getActiveJobs } from '../api/client'
 import { StatCard } from '../components/StatCard'
@@ -97,7 +98,7 @@ export function Dashboard() {
       </div>
 
       {/* Action Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Link
           to="/review"
           className="group bg-white rounded-xl p-8 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:shadow-lg transition-all duration-300 hover:scale-105"
@@ -132,6 +133,25 @@ export function Dashboard() {
           </p>
           <div className="mt-6 flex items-center text-purple-600 group-hover:text-purple-700 font-medium">
             <span>View analytics</span>
+            <span className="ml-2 group-hover:translate-x-1 transition-transform">→</span>
+          </div>
+        </Link>
+
+        <Link
+          to="/classification"
+          className="group bg-white rounded-xl p-8 border-2 border-dashed border-slate-200 hover:border-purple-400 hover:shadow-lg transition-all duration-300 hover:scale-105"
+        >
+          <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl w-fit mb-6 group-hover:scale-110 transition-transform">
+            <TestTube className="h-10 w-10 text-purple-600" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 mb-3 group-hover:text-purple-900">
+            Classification Tools
+          </h3>
+          <p className="text-slate-600 group-hover:text-purple-700 leading-relaxed">
+            Test and improve scene vs object detection with enhanced AI analysis
+          </p>
+          <div className="mt-6 flex items-center text-purple-600 group-hover:text-purple-700 font-medium">
+            <span>Open tools</span>
             <span className="ml-2 group-hover:translate-x-1 transition-transform">→</span>
           </div>
         </Link>
@@ -213,6 +233,72 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Scene Classification Breakdown */}
+      {stats?.scenes_by_type && (
+        <div className="bg-white rounded-xl p-8 shadow-sm border border-slate-200/60 animate-slide-up">
+          <h2 className="text-2xl font-bold text-slate-800 mb-6">Scene Classification Breakdown</h2>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="text-3xl font-bold text-blue-600 mb-2">{stats.scenes_by_type.scene}</div>
+              <div className="text-sm font-medium text-blue-800">Full Scenes</div>
+              <div className="text-xs text-blue-600 mt-1">3+ diverse objects</div>
+            </div>
+            
+            <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="text-3xl font-bold text-purple-600 mb-2">{stats.scenes_by_type.object}</div>
+              <div className="text-sm font-medium text-purple-800">Single Objects</div>
+              <div className="text-xs text-purple-600 mt-1">1-2 furniture pieces</div>
+            </div>
+            
+            <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <div className="text-3xl font-bold text-orange-600 mb-2">{stats.scenes_by_type.hybrid}</div>
+              <div className="text-sm font-medium text-orange-800">Hybrid Scenes</div>
+              <div className="text-xs text-orange-600 mt-1">Focal object + context</div>
+            </div>
+            
+            <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+              <div className="text-3xl font-bold text-green-600 mb-2">{stats.scenes_by_type.product}</div>
+              <div className="text-sm font-medium text-green-800">Product Images</div>
+              <div className="text-xs text-green-600 mt-1">Catalog/studio photos</div>
+            </div>
+          </div>
+          
+          {/* Room Types */}
+          {stats.room_types && stats.room_types.length > 0 && (
+            <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <h4 className="font-medium text-slate-800 mb-3">Detected Room Types</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {stats.room_types.slice(0, 8).map((room) => (
+                  <div key={room.room_type} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600 capitalize">{room.room_type?.replace(/_/g, ' ')}</span>
+                    <span className="font-medium text-slate-800">{room.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Detected Styles */}
+          {stats.detected_styles && stats.detected_styles.length > 0 && (
+            <div className="mt-4 p-4 bg-pink-50 rounded-lg border border-pink-200">
+              <h4 className="font-medium text-pink-800 mb-3">Detected Design Styles</h4>
+              <div className="flex flex-wrap gap-2">
+                {stats.detected_styles.slice(0, 10).map((style) => (
+                  <span key={style.style} className="px-3 py-1 bg-pink-100 text-pink-700 rounded-full text-sm border border-pink-300">
+                    {style.style} ({style.count})
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
       </div>
     </div>
   )

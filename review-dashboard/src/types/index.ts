@@ -2,13 +2,38 @@ export interface Scene {
   scene_id: string
   houzz_id: string
   image_url: string
+  image_r2_key?: string
+  image_type?: 'scene' | 'object' | 'product' | 'hybrid'
+  is_primary_object?: boolean
+  primary_category?: string
   room_type: string | null
   style_tags: string[]
   color_tags: string[]
   project_url: string | null
   status: 'scraped' | 'processing' | 'pending_review' | 'approved' | 'rejected'
   created_at: string
+  updated_at?: string
   objects: DetectedObject[]
+  object_count?: number
+  metadata?: {
+    classification_confidence?: number
+    classification_reason?: string
+    detected_room_type?: string
+    detected_styles?: string[]
+    scores?: {
+      object: number
+      scene: number
+      hybrid: number
+      style: number
+    }
+    reclassification?: {
+      job_id: string
+      timestamp: string
+      confidence: number
+      reason: string
+      previous_type: string
+    }
+  }
 }
 
 export interface DetectedObject {
@@ -115,6 +140,20 @@ export interface DatasetStats {
   unique_categories: number
   avg_confidence: number
   objects_with_products: number
+  scenes_by_type?: {
+    scene: number
+    object: number
+    hybrid: number
+    product: number
+  }
+  room_types?: Array<{
+    room_type: string
+    count: number
+  }>
+  detected_styles?: Array<{
+    style: string
+    count: number
+  }>
 }
 
 export interface CategoryStats {
@@ -145,3 +184,33 @@ export const FURNITURE_TAXONOMY = {
 
 export type FurnitureCategory = keyof typeof FURNITURE_TAXONOMY
 export type FurnitureItem = typeof FURNITURE_TAXONOMY[FurnitureCategory][number]
+
+export interface ImageClassification {
+  image_type: 'scene' | 'object' | 'product' | 'hybrid'
+  is_primary_object: boolean
+  primary_category?: string
+  confidence: number
+  reason: string
+  metadata: {
+    scores: {
+      object: number
+      scene: number
+      hybrid: number
+      style: number
+    }
+    detected_room_type?: string
+    detected_styles: string[]
+    keyword_matches: {
+      object_matches: string[]
+      scene_matches: string[]
+    }
+  }
+}
+
+export interface ClassificationTestResult {
+  image_url: string
+  caption?: string
+  classification: ImageClassification
+  status: 'success' | 'failed'
+  error?: string
+}

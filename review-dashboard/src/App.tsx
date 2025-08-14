@@ -9,6 +9,7 @@ import { SceneDetail } from './pages/SceneDetail'
 import { DatasetExport } from './pages/DatasetExport'
 import { Analytics } from './pages/Analytics'
 import { Colors } from './pages/Colors'
+import { Classification } from './pages/Classification'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/export" element={<DatasetExport />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/colors" element={<Colors />} />
+              <Route path="/classification" element={<Classification />} />
             </Routes>
           </main>
         </div>

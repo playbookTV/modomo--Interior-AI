@@ -1,0 +1,105 @@
+# Railway-Complete Requirements for Modomo Scraper
+# All AI dependencies included for full functionality
+
+# === CORE FRAMEWORK ===
+fastapi
+uvicorn[standard]
+pydantic
+
+# === AI/ML CORE ===
+# PyTorch - CPU optimized for Railway
+torch==2.1.2+cpu
+torchvision==0.16.2+cpu
+torchaudio==2.1.2+cpu
+-f https://download.pytorch.org/whl/torch_stable.html
+
+# Computer Vision & Image Processing
+opencv-python-headless
+Pillow
+scikit-image
+
+# === ENHANCED CLASSIFICATION SYSTEM ===
+# NLP for keyword processing
+nltk
+spacy
+scikit-learn
+
+# ML Utilities
+numpy
+scipy
+pandas
+
+# === AI MODEL DEPENDENCIES ===
+# Transformers for CLIP and other models
+transformers
+sentence-transformers
+huggingface-hub
+
+# OpenAI CLIP (for embeddings)
+# Install CLIP from git for latest compatibility
+git+https://github.com/openai/CLIP.git
+
+# Additional AI dependencies
+tokenizers
+safetensors
+timm
+
+# Color processing
+webcolors
+matplotlib
+seaborn
+
+# === OBJECT DETECTION MODELS ===
+# Ultralytics YOLO (for grounding_dino fallback)
+ultralytics
+
+# === SEGMENTATION MODELS ===
+# SAM2 - installed via git in Dockerfile
+# git+https://github.com/facebookresearch/segment-anything-2.git
+
+# GroundingDINO dependencies
+# Additional dependencies for GroundingDINO
+supervision
+
+# === WEB SCRAPING ===
+playwright
+aiohttp
+beautifulsoup4
+lxml
+requests
+
+# === DATABASE & STORAGE ===
+asyncpg
+redis
+supabase
+psycopg2-binary
+sqlalchemy
+
+# === CLOUD STORAGE ===
+boto3
+
+# === LOGGING & MONITORING ===
+structlog
+loguru
+
+# === UTILITIES ===
+python-dotenv
+python-multipart
+python-jose[cryptography]
+aiofiles
+
+# === IMAGE & VIDEO PROCESSING ===
+imageio
+tifffile
+
+# === DEVELOPMENT & DEBUGGING ===
+rich
+click
+
+# === PERFORMANCE ===
+ujson
+orjson
+
+# === ADDITIONAL AI UTILITIES ===
+# For advanced image processing
+albumentations

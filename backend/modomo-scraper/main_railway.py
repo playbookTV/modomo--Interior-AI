@@ -7,6 +7,15 @@ import os
 import sys
 import importlib
 
+# Ensure current directory is in Python path for models package
+if os.getcwd() not in sys.path:
+    sys.path.insert(0, os.getcwd())
+
+# Also ensure /app is in path for Railway deployment
+app_dir = "/app"
+if app_dir not in sys.path and os.path.exists(app_dir):
+    sys.path.insert(0, app_dir)
+
 def check_ai_dependencies():
     """Check if AI dependencies are available and working"""
     try:
@@ -36,6 +45,42 @@ def check_ai_dependencies():
 
 def get_app():
     """Get the appropriate app - always full AI mode for production"""
+    
+    # Initialize models from Railway Volume on startup
+    print("🤖 Initializing AI models from Railway Volume...")
+    try:
+        from init_models import init_models, check_model_availability
+        
+        # Initialize models (downloads only if missing)
+        model_init_success = init_models()
+        
+        # Check availability
+        model_status = check_model_availability()
+        available_models = [name for name, info in model_status.items() if info["available"]]
+        
+        if available_models:
+            print(f"✅ Available models: {', '.join(available_models)}")
+        else:
+            print("⚠️ No models available - will use fallback mode")
+            
+    except Exception as e:
+        print(f"⚠️ Model initialization warning: {e}")
+        print("🔄 Continuing with existing models if available...")
+        
+    # Initialize Phase 2 caches (Hugging Face, Playwright, etc.)
+    print("🚀 Initializing Phase 2 caches...")
+    try:
+        from init_caches import CacheInitializer
+        cache_init = CacheInitializer()
+        
+        # Only initialize what's missing (smart caching)
+        cache_stats = cache_init.initialize_all()
+        total_cached = sum(s.get("size_mb", 0) for s in cache_stats.values())
+        print(f"📦 Phase 2 cache ready: {total_cached:.1f} MB total")
+        
+    except Exception as e:
+        print(f"⚠️ Cache initialization warning: {e}")
+        print("🔄 Will initialize caches on first use...")
     
     # Force full AI mode for production
     ai_mode = os.getenv("AI_MODE", "full").lower()

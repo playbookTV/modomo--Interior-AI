@@ -183,3 +183,68 @@ export const batchRejectObjects = async (objectIds: string[]): Promise<{ count: 
   const response = await updateReview(updates)
   return { count: response.count }
 }
+
+// Classification endpoints
+export const testImageClassification = async (params: {
+  image_url: string
+  caption?: string
+}): Promise<{
+  image_url: string
+  caption?: string
+  classification: {
+    image_type: string
+    is_primary_object: boolean
+    primary_category?: string
+    confidence: number
+    reason: string
+    metadata: any
+  }
+  status: string
+}> => {
+  const response = await apiClient.get('/classify/test', { params })
+  return response.data
+}
+
+export const startSceneReclassification = async (params: {
+  limit: number
+  force_redetection: boolean
+}): Promise<{
+  job_id: string
+  status: string
+  message: string
+  features: string[]
+}> => {
+  const response = await apiClient.post('/classify/reclassify-scenes', null, { params })
+  return response.data
+}
+
+// Enhanced scene fetching with classification data
+export const getScenesWithClassification = async (params: {
+  limit?: number
+  offset?: number
+  status?: string
+  image_type?: string
+  room_type?: string
+}): Promise<{
+  scenes: (Scene & {
+    image_type?: string
+    is_primary_object?: boolean
+    primary_category?: string
+    metadata?: {
+      classification_confidence?: number
+      classification_reason?: string
+      detected_room_type?: string
+      detected_styles?: string[]
+      scores?: {
+        object: number
+        scene: number
+        hybrid: number
+        style: number
+      }
+    }
+  })[]
+  total: number
+}> => {
+  const response = await apiClient.get('/scenes', { params })
+  return response.data
+}

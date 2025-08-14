@@ -76,9 +76,25 @@ class SegmentationConfig:
     device: str = "cuda"  # "cuda" or "cpu"
     model_type: str = "sam2_hiera_large"  # SAM2 model variant
     
-    # Checkpoints (auto-download if not specified)
+    # Railway Volume model paths
     sam2_checkpoint: Optional[str] = None
     fba_checkpoint: Optional[str] = None
+    
+    def __post_init__(self):
+        """Auto-configure model paths from Railway Volume"""
+        if self.sam2_checkpoint is None:
+            # Check Railway Volume first, then fallback locations
+            volume_path = f"/app/models/sam2/{self.model_type}.pt"
+            checkpoint_path = f"/app/checkpoints/{self.model_type}.pt"
+            
+            if os.path.exists(volume_path):
+                self.sam2_checkpoint = volume_path
+                logger.info(f"✅ Using SAM2 model from Railway Volume: {volume_path}")
+            elif os.path.exists(checkpoint_path):
+                self.sam2_checkpoint = checkpoint_path
+                logger.info(f"✅ Using SAM2 model from checkpoints: {checkpoint_path}")
+            else:
+                logger.warning(f"⚠️ SAM2 checkpoint not found in Volume or checkpoints for {self.model_type}")
     
     # Processing parameters
     min_mask_area: int = 500       # Minimum mask area (pixels)

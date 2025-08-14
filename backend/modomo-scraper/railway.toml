@@ -1,0 +1,28 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python main_railway.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Railway Volume Configuration for Model Persistence
+[[deploy.volumes]]
+mountPath = "/app/models"
+name = "modomo-ai-models"
+
+[env]
+# Production environment variables
+AI_MODE = "full"
+CLASSIFICATION_ENHANCED = "true"
+KEYWORD_SYSTEM_VERSION = "2.0"
+MODEL_CACHE_DIR = "/app/models"
+SAM2_CHECKPOINT_DIR = "/app/models/sam2"
+CLIP_CACHE_DIR = "/app/models/clip"
+
+# Railway-specific optimizations
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"

@@ -802,27 +802,77 @@ export function DatasetImporter() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {scenes.scenes.slice(0, 8).map((scene: any) => (
                   <div key={scene.scene_id} className="bg-white border border-slate-200 rounded-lg p-3">
-                    <img
-                      src={scene.image_url}
-                      alt={scene.houzz_id}
-                      className="w-full h-20 object-cover rounded mb-2"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjZjMzNDU2Ii8+Cjx0ZXh0IHg9IjEyIiB5PSIxMiIgZmlsbD0iI2ZmZmZmZiIgZm9udC1zaXplPSI4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+4p2MPC90ZXh0Pgo8L3N2Zz4K'
-                      }}
-                    />
+                    <div className="relative">
+                      <img
+                        src={scene.image_url}
+                        alt={scene.houzz_id}
+                        className="w-full h-20 object-cover rounded mb-2"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjZjMzNDU2Ii8+Cjx0ZXh0IHg9IjEyIiB5PSIxMiIgZmlsbD0iI2ZmZmZmZiIgZm9udC1zaXplPSI4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+4p2MPC90ZXh0Pgo8L3N2Zz4K'
+                        }}
+                      />
+                      {/* Image Type Badge */}
+                      {scene.image_type && (
+                        <span className={`absolute top-1 right-1 px-1 py-0.5 text-xs font-medium rounded ${
+                          scene.image_type === 'scene' ? 'bg-blue-100 text-blue-800' :
+                          scene.image_type === 'object' ? 'bg-purple-100 text-purple-800' :
+                          scene.image_type === 'hybrid' ? 'bg-orange-100 text-orange-800' :
+                          scene.image_type === 'product' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {scene.image_type}
+                        </span>
+                      )}
+                    </div>
+                    
                     <div className="space-y-1">
                       <p className="text-xs text-slate-600 truncate">{scene.houzz_id}</p>
+                      
+                      {/* Room Type & Object Count */}
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{scene.room_type}</span>
+                        <span className="text-slate-500">
+                          {scene.metadata?.detected_room_type || scene.room_type}
+                        </span>
                         <span className="flex items-center text-green-600">
                           <CheckCircle className="h-3 w-3 mr-1" />
                           {scene.object_count || 0}
                         </span>
                       </div>
-                      {scene.style_tags && scene.style_tags.length > 0 && (
+                      
+                      {/* Primary Category for Object/Hybrid types */}
+                      {scene.primary_category && (
+                        <p className="text-xs text-purple-600 truncate">
+                          {scene.primary_category.replace(/_/g, ' ')}
+                        </p>
+                      )}
+                      
+                      {/* Detected Styles */}
+                      {scene.metadata?.detected_styles && scene.metadata.detected_styles.length > 0 && (
+                        <p className="text-xs text-pink-600 truncate">
+                          {scene.metadata.detected_styles[0]}
+                        </p>
+                      )}
+                      
+                      {/* Style Tags (fallback) */}
+                      {(!scene.metadata?.detected_styles || scene.metadata.detected_styles.length === 0) && 
+                       scene.style_tags && scene.style_tags.length > 0 && (
                         <p className="text-xs text-blue-600 truncate">
                           {scene.style_tags[0]}
                         </p>
+                      )}
+                      
+                      {/* Classification Confidence */}
+                      {scene.metadata?.classification_confidence && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Confidence</span>
+                          <span className={`font-medium ${
+                            scene.metadata.classification_confidence >= 0.8 ? 'text-green-600' :
+                            scene.metadata.classification_confidence >= 0.6 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {(scene.metadata.classification_confidence * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

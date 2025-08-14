@@ -42,43 +42,52 @@ function MaskOverlay({
   isActive: boolean
   opacity?: number 
 }) {
+  const [maskLoaded, setMaskLoaded] = useState(false)
+  const [maskError, setMaskError] = useState(false)
+  
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Colored overlay */}
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundColor: isActive ? '#10b981' : '#3b82f6', // Green for active, blue for inactive
-          opacity: isActive ? 0.3 : 0.2,
-          maskImage: `url(${maskUrl})`,
-          WebkitMaskImage: `url(${maskUrl})`,
-          maskRepeat: 'no-repeat',
-          maskSize: 'contain',
-          maskPosition: 'center',
-          WebkitMaskRepeat: 'no-repeat',
-          WebkitMaskSize: 'contain', 
-          WebkitMaskPosition: 'center'
-        }}
-      />
+      {/* Direct mask image display with color overlay */}
+      <div className="absolute inset-0">
+        <img
+          src={maskUrl}
+          alt="Object mask"
+          className="w-full h-full object-contain"
+          style={{
+            opacity: isActive ? 0.7 : 0.4,
+            filter: isActive 
+              ? 'hue-rotate(120deg) saturate(2) brightness(1.5)' // Green tint for active
+              : 'hue-rotate(240deg) saturate(2) brightness(1.5)', // Blue tint for inactive
+            mixBlendMode: 'multiply'
+          }}
+          onLoad={() => {
+            setMaskLoaded(true)
+            setMaskError(false)
+            console.log('SAM2 mask loaded successfully:', maskUrl)
+          }}
+          onError={(e) => {
+            setMaskError(true)
+            setMaskLoaded(false)
+            console.warn('Failed to load SAM2 mask:', maskUrl)
+          }}
+        />
+      </div>
       
-      {/* Mask outline */}
-      <img
-        src={maskUrl}
-        alt="Object mask"
-        className="w-full h-full object-contain"
-        style={{
-          opacity: isActive ? 0.8 : 0.5,
-          filter: isActive 
-            ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(120deg)' // Green outline for active
-            : 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(240deg)', // Blue outline for inactive
-          mixBlendMode: 'overlay'
-        }}
-        onError={(e) => {
-          // Hide broken masks gracefully
-          e.currentTarget.style.display = 'none'
-          console.warn('Failed to load mask:', maskUrl)
-        }}
-      />
+      {/* Fallback indicator for broken masks */}
+      {maskError && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+            Mask Load Failed
+          </div>
+        </div>
+      )}
+      
+      {/* Debug info */}
+      {maskLoaded && (
+        <div className="absolute top-2 left-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+          SAM2 Active
+        </div>
+      )}
     </div>
   )
 }

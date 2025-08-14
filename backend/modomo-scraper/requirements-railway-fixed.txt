@@ -1,0 +1,80 @@
+# Railway-Compatible Requirements for Modomo Scraper
+# Simplified to avoid dependency conflicts
+
+# === CORE FRAMEWORK ===
+fastapi
+uvicorn[standard]
+pydantic
+
+# === AI/ML CORE ===
+# PyTorch - CPU optimized for Railway
+torch==2.1.2+cpu
+torchvision==0.16.2+cpu
+torchaudio==2.1.2+cpu
+-f https://download.pytorch.org/whl/torch_stable.html
+
+# Computer Vision & Image Processing
+opencv-python-headless
+Pillow
+scikit-image
+
+# === ENHANCED CLASSIFICATION SYSTEM ===
+# NLP for keyword processing
+nltk
+spacy
+scikit-learn
+
+# ML Utilities
+numpy
+scipy
+pandas
+
+# === AI MODEL DEPENDENCIES ===
+# Transformers for CLIP and other models
+transformers
+sentence-transformers
+huggingface-hub
+
+# Additional AI dependencies
+tokenizers
+safetensors
+timm
+
+# === WEB SCRAPING ===
+playwright
+aiohttp
+beautifulsoup4
+lxml
+requests
+
+# === DATABASE & STORAGE ===
+asyncpg
+redis
+supabase
+psycopg2-binary
+sqlalchemy
+
+# === CLOUD STORAGE ===
+boto3
+
+# === LOGGING & MONITORING ===
+structlog
+loguru
+
+# === UTILITIES ===
+python-dotenv
+python-multipart
+python-jose[cryptography]
+aiofiles
+
+# === IMAGE & VIDEO PROCESSING ===
+imageio
+tifffile
+
+# === DEVELOPMENT & DEBUGGING ===
+rich
+click
+
+# === PERFORMANCE ===
+ujson
+orjson

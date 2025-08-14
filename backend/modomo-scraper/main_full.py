@@ -87,6 +87,18 @@ except ImportError as e:
     AI_DEPENDENCIES_AVAILABLE = False
     logger.warning(f"💡 AI dependencies not available ({e}) - using fallback implementations")
 
+# Ensure models directory is in Python path
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+    
+# Debug logging for Railway deployment
+logger.info(f"🔍 Current directory: {current_dir}")
+logger.info(f"🔍 Models directory exists: {os.path.exists(os.path.join(current_dir, 'models'))}")
+logger.info(f"🔍 __init__.py exists: {os.path.exists(os.path.join(current_dir, 'models', '__init__.py'))}")
+logger.info(f"🔍 Python path includes current dir: {current_dir in sys.path}")
+
 # Import real AI implementations if available
 try:
     from models.grounding_dino import GroundingDINODetector
@@ -1457,6 +1469,137 @@ async def get_job_status(job_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get job status: {e}")
 
+@app.post("/classify/reclassify-scenes")
+async def reclassify_existing_scenes(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(100, description="Number of scenes to reclassify"),
+    force_redetection: bool = Query(False, description="Re-run object detection for better classification")
+):
+    """
+    Reclassify existing scenes using enhanced scene vs object detection.
+    Useful for improving dataset quality after classification improvements.
+    """
+    job_id = str(uuid.uuid4())
+    
+    background_tasks.add_task(run_scene_reclassification_job, job_id, limit, force_redetection)
+    
+    return {
+        "job_id": job_id,
+        "status": "running", 
+        "message": f"Started reclassifying {limit} scenes with enhanced classification",
+        "features": ["scene_classification", "object_detection"] if force_redetection else ["scene_classification"]
+    }
+
+@app.get("/classify/test")
+async def test_classification(
+    image_url: str = Query(..., description="Image URL to test classification"),
+    caption: str = Query(None, description="Optional caption/description")
+):
+    """Test image classification on a single image"""
+    try:
+        classification = await classify_image_type(image_url, caption)
+        return {
+            "image_url": image_url,
+            "caption": caption,
+            "classification": classification,
+            "status": "success"
+        }
+    except Exception as e:
+        return {
+            "image_url": image_url,
+            "error": str(e),
+            "status": "failed"
+        }
+
+async def run_scene_reclassification_job(job_id: str, limit: int, force_redetection: bool):
+    """Background job to reclassify existing scenes"""
+    try:
+        logger.info(f"🔄 Starting scene reclassification job {job_id} for {limit} scenes")
+        
+        if not supabase:
+            logger.error("❌ Supabase client not available")
+            return
+            
+        # Get scenes that need reclassification (prioritize those without classification)
+        scenes_query = supabase.table("scenes").select(
+            "scene_id, houzz_id, image_url, image_type, is_primary_object, primary_category, metadata"
+        ).order("created_at", desc=True).limit(limit)
+        
+        scenes_result = scenes_query.execute()
+        scenes = scenes_result.data or []
+        
+        if not scenes:
+            logger.warning("No scenes found for reclassification")
+            return
+            
+        logger.info(f"📊 Found {len(scenes)} scenes to reclassify")
+        
+        for i, scene in enumerate(scenes):
+            try:
+                scene_id = scene["scene_id"]
+                image_url = scene["image_url"]
+                houzz_id = scene["houzz_id"]
+                
+                logger.info(f"🔍 Reclassifying scene {i+1}/{len(scenes)}: {houzz_id}")
+                
+                # Step 1: Get enhanced classification
+                # Extract caption from existing metadata or use houzz_id
+                existing_metadata = scene.get("metadata", {})
+                caption = existing_metadata.get("caption") or houzz_id
+                
+                new_classification = await classify_image_type(image_url, caption)
+                
+                # Step 2: Update database with new classification
+                update_data = {
+                    "image_type": new_classification["image_type"],
+                    "is_primary_object": new_classification["is_primary_object"], 
+                    "primary_category": new_classification["primary_category"],
+                    "metadata": {
+                        **existing_metadata,
+                        "reclassification": {
+                            "job_id": job_id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "confidence": new_classification["confidence"],
+                            "reason": new_classification["reason"],
+                            "previous_type": scene.get("image_type", "unknown")
+                        }
+                    },
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                
+                result = supabase.table("scenes").update(update_data).eq("scene_id", scene_id).execute()
+                
+                if result.data:
+                    old_type = scene.get("image_type", "unknown")
+                    new_type = new_classification["image_type"]
+                    confidence = new_classification["confidence"]
+                    
+                    if old_type != new_type:
+                        logger.info(f"✅ Reclassified {houzz_id}: {old_type} → {new_type} (confidence: {confidence:.2f})")
+                    else:
+                        logger.info(f"✅ Confirmed {houzz_id}: {new_type} (confidence: {confidence:.2f})")
+                else:
+                    logger.error(f"❌ Failed to update scene {houzz_id}")
+                    
+                # Step 3: Re-run object detection if requested and classification changed significantly
+                if force_redetection and new_classification["confidence"] > 0.7:
+                    try:
+                        # Run enhanced detection for better object understanding
+                        detections = await run_detection_pipeline(image_url, f"{job_id}_redetect_{i}")
+                        if detections:
+                            logger.info(f"🔍 Re-detected {len(detections)} objects for {houzz_id}")
+                    except Exception as detection_error:
+                        logger.warning(f"Re-detection failed for {houzz_id}: {detection_error}")
+                
+            except Exception as scene_error:
+                logger.error(f"❌ Failed to reclassify scene {i+1}: {scene_error}")
+                continue
+                
+        logger.info(f"✅ Scene reclassification job {job_id} completed - processed {len(scenes)} scenes")
+        
+    except Exception as e:
+        logger.error(f"❌ Scene reclassification job {job_id} failed: {e}")
+
 async def run_color_processing_job(job_id: str, limit: int):
     """Background job to process existing objects with color extraction"""
     try:
@@ -1549,6 +1692,595 @@ async def run_color_processing_job(job_id: str, limit: int):
         
     except Exception as e:
         logger.error(f"❌ Color processing job {job_id} failed: {e}")
+
+def get_comprehensive_keywords() -> Dict[str, List[str]]:
+    """
+    Comprehensive keyword system for robust image classification.
+    Covers furniture, decor, room types, styles, and contextual indicators.
+    """
+    return {
+        # OBJECT-ONLY INDICATORS (Single furniture/decor pieces)
+        "object": [
+            # === SEATING ===
+            "sofa", "couch", "sectional", "loveseat", "settee", "chesterfield", "daybed",
+            "chair", "armchair", "accent chair", "lounge chair", "dining chair", "desk chair",
+            "office chair", "swivel chair", "recliner", "wingback", "bergere", "club chair",
+            "stool", "bar stool", "counter stool", "ottoman", "pouf", "footstool",
+            "bench", "storage bench", "entryway bench", "window bench", "piano bench",
+            
+            # === TABLES ===
+            "table", "coffee table", "cocktail table", "end table", "side table", "accent table",
+            "dining table", "kitchen table", "breakfast table", "console table", "entry table",
+            "desk", "writing desk", "computer desk", "standing desk", "secretary desk",
+            "nightstand", "bedside table", "night table", "bedstand",
+            "nesting tables", "tv stand", "media console", "entertainment center",
+            
+            # === STORAGE ===
+            "bookshelf", "bookcase", "shelf", "shelving unit", "etagere", "ladder shelf",
+            "cabinet", "storage cabinet", "display cabinet", "china cabinet", "curio cabinet",
+            "dresser", "chest of drawers", "tall dresser", "low dresser", "bachelor chest",
+            "wardrobe", "armoire", "closet", "credenza", "sideboard", "buffet", "hutch",
+            "filing cabinet", "storage unit", "modular storage", "cube organizer",
+            
+            # === LIGHTING ===
+            "lamp", "table lamp", "desk lamp", "task lamp", "reading lamp", "accent lamp",
+            "floor lamp", "torchiere", "arc lamp", "tripod lamp", "tree lamp",
+            "pendant light", "hanging light", "chandelier", "ceiling light", "flush mount",
+            "wall sconce", "wall light", "vanity light", "picture light", "under cabinet light",
+            "track lighting", "recessed light", "can light", "spotlight", "downlight",
+            
+            # === BEDROOM ===
+            "bed", "bed frame", "platform bed", "sleigh bed", "canopy bed", "four poster",
+            "headboard", "footboard", "mattress", "box spring", "bedding", "pillows",
+            "comforter", "duvet", "blanket", "throw", "bed skirt", "mattress pad",
+            
+            # === BATHROOM ===
+            "bathtub", "tub", "freestanding tub", "clawfoot tub", "soaking tub", "jacuzzi",
+            "shower", "walk-in shower", "shower stall", "shower door", "shower curtain",
+            "vanity", "bathroom vanity", "sink vanity", "double vanity", "floating vanity",
+            "toilet", "water closet", "bidet", "pedestal sink", "vessel sink",
+            
+            # === DECOR & ACCESSORIES ===
+            "mirror", "wall mirror", "floor mirror", "vanity mirror", "decorative mirror",
+            "artwork", "wall art", "painting", "print", "poster", "canvas", "framed art",
+            "sculpture", "statue", "figurine", "decorative object", "vase", "bowl",
+            "plant", "houseplant", "planter", "pot", "artificial plant", "tree", "fern",
+            "rug", "area rug", "runner", "carpet", "mat", "doormat", "bath mat",
+            "curtains", "drapes", "blinds", "shades", "window treatments", "valance",
+            "pillow", "throw pillow", "accent pillow", "cushion", "bolster",
+            "clock", "wall clock", "mantel clock", "desk clock", "alarm clock",
+            
+            # === PRODUCT/CATALOG INDICATORS ===
+            "product", "item", "piece", "furniture piece", "accent piece",
+            "single", "individual", "standalone", "isolated", "solo",
+            "catalog", "listing", "for sale", "available", "buy now", "purchase",
+            "studio", "white background", "neutral background", "clean background",
+            "product photo", "catalog image", "stock photo", "commercial photo",
+            "furniture store", "showroom", "retail", "brand new", "unused",
+            
+            # === SIZE/QUANTITY INDICATORS ===
+            "one", "single piece", "individual item", "standalone piece",
+            "compact", "small", "mini", "accent size", "apartment size",
+            "full size", "standard size", "oversized", "large", "extra large",
+            
+            # === CONDITION/STYLE INDICATORS ===
+            "new", "brand new", "unused", "mint condition", "like new",
+            "vintage", "antique", "mid-century", "retro", "classic",
+            "modern", "contemporary", "minimalist", "sleek", "clean lines",
+        ],
+        
+        # SCENE INDICATORS (Full room contexts)
+        "scene": [
+            # === ROOM TYPES ===
+            "room", "living room", "family room", "great room", "sitting room", "lounge",
+            "bedroom", "master bedroom", "guest bedroom", "kids bedroom", "nursery", "boudoir",
+            "kitchen", "galley kitchen", "eat-in kitchen", "chef's kitchen", "kitchenette",
+            "dining room", "formal dining", "breakfast nook", "dinette", "banquette",
+            "bathroom", "master bath", "guest bath", "powder room", "half bath", "spa bath",
+            "office", "home office", "study", "den", "library", "workspace", "studio",
+            "entryway", "foyer", "entry hall", "mudroom", "vestibule", "reception area",
+            "hallway", "corridor", "passage", "stairway", "landing", "stair hall",
+            "basement", "cellar", "finished basement", "recreation room", "game room",
+            "attic", "loft", "converted space", "bonus room", "flex space",
+            "closet", "walk-in closet", "master closet", "dressing room", "wardrobe room",
+            "laundry room", "utility room", "mudroom", "pantry", "storage room",
+            "garage", "workshop", "craft room", "hobby room", "sewing room",
+            
+            # === OUTDOOR SPACES ===
+            "patio", "deck", "balcony", "terrace", "veranda", "porch", "sunroom",
+            "garden", "backyard", "courtyard", "outdoor living", "alfresco",
+            "pool area", "hot tub", "spa", "outdoor kitchen", "fire pit area",
+            
+            # === INTERIOR DESIGN CONCEPTS ===
+            "interior", "interior design", "home decor", "decoration", "styling",
+            "design", "room design", "space design", "layout", "floor plan",
+            "makeover", "renovation", "remodel", "refresh", "redesign", "transformation",
+            "home", "house", "residence", "dwelling", "apartment", "condo", "flat",
+            "space", "living space", "personal space", "functional space", "open space",
+            "vignette", "room setting", "lifestyle", "cozy", "inviting", "welcoming",
+            
+            # === DESIGN PROCESSES ===
+            "before and after", "room reveal", "design reveal", "styled", "staged",
+            "decorated", "furnished", "designed", "curated", "arranged", "organized",
+            "coordinated", "matched", "complemented", "harmonized", "balanced",
+            
+            # === ARCHITECTURAL ELEMENTS ===
+            "architecture", "architectural", "built-in", "millwork", "molding", "wainscoting",
+            "ceiling", "coffered ceiling", "tray ceiling", "vaulted ceiling", "exposed beams",
+            "wall", "accent wall", "feature wall", "gallery wall", "shiplap", "paneling",
+            "floor", "flooring", "hardwood", "tile", "carpet", "area rug", "runner",
+            "window", "windows", "natural light", "bay window", "french doors", "skylight",
+            "fireplace", "mantel", "hearth", "fireplace surround", "built-in shelves",
+            
+            # === LIFESTYLE CONTEXTS ===
+            "family home", "family living", "everyday living", "real life", "lived-in",
+            "comfortable", "functional", "practical", "user-friendly", "livable",
+            "entertaining", "hosting", "gathering", "socializing", "relaxing",
+            "reading nook", "conversation area", "media room", "tv room", "game night",
+        ],
+        
+        # HYBRID INDICATORS (Scenes with dominant focal pieces)
+        "hybrid": [
+            "showcase", "featured", "spotlight", "highlight", "centerpiece", "focal point",
+            "statement piece", "accent piece", "hero piece", "show-stopper", "eye-catching",
+            "dramatic", "bold", "striking", "standout", "conversation starter",
+            "anchored by", "centered around", "built around", "designed around",
+            "room features", "room highlights", "main attraction", "key element",
+            "draws attention", "commands attention", "steals the show", "takes center stage",
+        ],
+        
+        # STYLE KEYWORDS (For enhanced classification)
+        "style": [
+            # === TRADITIONAL STYLES ===
+            "traditional", "classic", "timeless", "formal", "elegant", "refined",
+            "victorian", "georgian", "colonial", "english country", "french country",
+            "tuscan", "mediterranean", "spanish", "moroccan", "persian",
+            
+            # === MODERN STYLES ===
+            "modern", "contemporary", "minimalist", "clean", "sleek", "streamlined",
+            "mid-century modern", "mcm", "danish modern", "eames", "bauhaus",
+            "scandinavian", "nordic", "hygge", "lagom", "scandi", "swedish", "danish",
+            "industrial", "urban", "loft", "warehouse", "exposed brick", "concrete",
+            
+            # === ECLECTIC STYLES ===
+            "eclectic", "bohemian", "boho", "boho chic", "maximalist", "collected",
+            "vintage", "retro", "antique", "shabby chic", "farmhouse", "rustic",
+            "coastal", "beach", "nautical", "tropical", "resort", "vacation",
+            "art deco", "hollywood regency", "glam", "luxe", "opulent", "dramatic",
+            
+            # === EMERGING STYLES ===
+            "transitional", "modern farmhouse", "contemporary farmhouse", "urban farmhouse",
+            "industrial chic", "modern rustic", "casual luxury", "approachable luxury",
+            "grandmillennial", "new traditional", "maximalist", "dark academia",
+        ],
+        
+        # ROOM TYPE KEYWORDS (For room classification)
+        "room_type": {
+            "living_room": ["living", "family room", "great room", "sitting", "lounge", "parlor"],
+            "bedroom": ["bedroom", "master bedroom", "guest bedroom", "nursery", "kids room"],
+            "kitchen": ["kitchen", "galley", "eat-in kitchen", "chef's kitchen", "kitchenette"],
+            "dining_room": ["dining", "breakfast nook", "dinette", "formal dining"],
+            "bathroom": ["bathroom", "master bath", "powder room", "half bath", "spa bath"],
+            "office": ["office", "home office", "study", "den", "library", "workspace"],
+            "outdoor": ["patio", "deck", "balcony", "terrace", "garden", "outdoor living"],
+        }
+    }
+
+def calculate_keyword_score(text: str, keywords: List[str]) -> float:
+    """
+    Calculate weighted keyword score with phrase matching and fuzzy matching.
+    Gives higher scores for exact matches and multi-word phrases.
+    """
+    score = 0.0
+    text_lower = text.lower()
+    
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        
+        # Exact phrase match (highest score)
+        if keyword_lower in text_lower:
+            # Multi-word phrases get higher scores
+            word_count = len(keyword_lower.split())
+            if word_count >= 3:
+                score += 3.0  # "walk-in closet", "master bedroom"
+            elif word_count == 2:
+                score += 2.0  # "living room", "coffee table"
+            else:
+                score += 1.0  # "sofa", "chair"
+        
+        # Partial word matching for compound keywords
+        elif "_" in keyword_lower or "-" in keyword_lower:
+            # Check individual parts of compound words
+            parts = keyword_lower.replace("_", " ").replace("-", " ").split()
+            partial_matches = sum(1 for part in parts if part in text_lower)
+            if partial_matches >= len(parts) * 0.6:  # At least 60% of parts match
+                score += 0.5
+        
+        # Fuzzy matching for plurals and variations
+        else:
+            # Check for plural/singular variations
+            if keyword_lower.endswith('s') and keyword_lower[:-1] in text_lower:
+                score += 0.8
+            elif not keyword_lower.endswith('s') and f"{keyword_lower}s" in text_lower:
+                score += 0.8
+            
+            # Check for common variations
+            variations = get_keyword_variations(keyword_lower)
+            for variation in variations:
+                if variation in text_lower:
+                    score += 0.6
+                    break
+    
+    return score
+
+def get_keyword_variations(keyword: str) -> List[str]:
+    """Generate common variations of keywords for fuzzy matching"""
+    variations = []
+    
+    # Common furniture variations
+    furniture_variations = {
+        "sofa": ["couch", "sectional", "loveseat"],
+        "chair": ["seating", "seat"],
+        "table": ["desk", "surface"],
+        "lamp": ["light", "lighting"],
+        "cabinet": ["storage", "cupboard"],
+        "mirror": ["looking glass", "reflective"],
+        "rug": ["carpet", "mat"],
+        "bed": ["sleeping", "mattress"],
+        "shelf": ["shelving", "bookcase"]
+    }
+    
+    if keyword in furniture_variations:
+        variations.extend(furniture_variations[keyword])
+    
+    # Common room variations
+    room_variations = {
+        "living room": ["lounge", "sitting room", "family room"],
+        "bedroom": ["sleeping room", "bed room"],
+        "kitchen": ["cooking area", "galley"],
+        "bathroom": ["bath", "washroom", "powder room"],
+        "office": ["study", "workspace", "den"]
+    }
+    
+    if keyword in room_variations:
+        variations.extend(room_variations[keyword])
+    
+    return variations
+
+def detect_room_type(text: str, room_type_keywords: Dict[str, List[str]]) -> Optional[str]:
+    """Detect the primary room type from text analysis"""
+    text_lower = text.lower()
+    room_scores = {}
+    
+    for room_type, keywords in room_type_keywords.items():
+        score = 0
+        for keyword in keywords:
+            if keyword.lower() in text_lower:
+                # Longer phrases get higher scores
+                score += len(keyword.split())
+        
+        if score > 0:
+            room_scores[room_type] = score
+    
+    if room_scores:
+        # Return room type with highest score
+        return max(room_scores, key=room_scores.get)
+    
+    return None
+
+def detect_primary_category_from_text(text: str) -> Optional[str]:
+    """
+    Enhanced primary category detection using comprehensive keyword matching.
+    Returns the most likely furniture category based on text analysis.
+    """
+    text_lower = text.lower()
+    category_scores = {}
+    
+    # Score each category in MODOMO_TAXONOMY
+    for category_group, items in MODOMO_TAXONOMY.items():
+        for item in items:
+            item_variations = [
+                item,
+                item.replace("_", " "),
+                item.replace("_", "-"),
+                item.replace("_", "")
+            ]
+            
+            # Add common variations
+            variations = get_keyword_variations(item)
+            item_variations.extend(variations)
+            
+            # Calculate score for this item
+            item_score = 0
+            for variation in item_variations:
+                variation_lower = variation.lower()
+                if variation_lower in text_lower:
+                    # Exact match gets higher score
+                    if variation_lower == item.replace("_", " "):
+                        item_score += 3
+                    else:
+                        item_score += 1
+                    
+                    # Boost score for longer phrases
+                    word_count = len(variation_lower.split())
+                    if word_count >= 2:
+                        item_score += word_count - 1
+            
+            if item_score > 0:
+                category_scores[item] = item_score
+    
+    # Return category with highest score if above threshold
+    if category_scores:
+        best_category = max(category_scores, key=category_scores.get)
+        best_score = category_scores[best_category]
+        
+        # Only return if confidence is reasonable
+        if best_score >= 2:
+            return best_category
+    
+    return None
+
+def detect_styles_from_text(text: str, style_keywords: List[str]) -> List[str]:
+    """Detect interior design styles mentioned in the text"""
+    text_lower = text.lower()
+    detected_styles = []
+    
+    for style in style_keywords:
+        style_lower = style.lower()
+        if style_lower in text_lower:
+            detected_styles.append(style)
+            
+        # Check for style variations
+        style_variations = {
+            "mid-century modern": ["mcm", "mid century", "mid-century", "eames era"],
+            "scandinavian": ["scandi", "nordic", "danish", "swedish", "hygge"],
+            "industrial": ["urban loft", "warehouse", "exposed brick", "concrete"],
+            "bohemian": ["boho", "boho chic", "eclectic", "maximalist"],
+            "farmhouse": ["rustic", "country", "barn", "shiplap"],
+            "contemporary": ["modern", "current", "up-to-date", "present-day"]
+        }
+        
+        if style_lower in style_variations:
+            for variation in style_variations[style_lower]:
+                if variation in text_lower and style not in detected_styles:
+                    detected_styles.append(style)
+                    break
+    
+    return detected_styles[:3]  # Limit to top 3 styles
+
+async def classify_image_type(image_url: str, caption: str = None) -> Dict[str, Any]:
+    """
+    Classify whether an image is a scene, object, product, or hybrid.
+    
+    Uses multiple heuristics for robust classification:
+    1. Caption/filename analysis for keywords
+    2. Object detection count and distribution
+    3. Image composition analysis (if available)
+    
+    Returns:
+        Dict with image_type, is_primary_object, primary_category, confidence, reason
+    """
+    try:
+        # Default classification
+        classification = {
+            "image_type": "scene",
+            "is_primary_object": False,
+            "primary_category": None,
+            "confidence": 0.5,
+            "reason": "default_classification"
+        }
+        
+        # Step 1: Caption/URL-based classification
+        text_indicators = []
+        if caption:
+            text_indicators.append(caption.lower())
+        if image_url:
+            text_indicators.append(image_url.lower())
+        
+        combined_text = " ".join(text_indicators)
+        
+        # Comprehensive keyword classification system
+        classification_keywords = get_comprehensive_keywords()
+        
+        object_keywords = classification_keywords["object"]
+        scene_keywords = classification_keywords["scene"]
+        hybrid_keywords = classification_keywords["hybrid"]
+        style_keywords = classification_keywords["style"]
+        room_type_keywords = classification_keywords["room_type"]
+        
+        # Enhanced scoring with weighted keywords and phrase matching
+        object_score = calculate_keyword_score(combined_text, object_keywords)
+        scene_score = calculate_keyword_score(combined_text, scene_keywords)
+        hybrid_score = calculate_keyword_score(combined_text, hybrid_keywords)
+        style_score = calculate_keyword_score(combined_text, style_keywords)
+        
+        # Detect room type for better context
+        detected_room_type = detect_room_type(combined_text, room_type_keywords)
+        
+        # Adjust scene score if room type detected
+        if detected_room_type:
+            scene_score += 2  # Boost scene score if room type is clearly identified
+        
+        # Step 2: AI detection-based classification (if detector available)
+        detection_classification = None
+        if detector and image_url:
+            try:
+                # Download image temporarily for detection
+                import aiohttp
+                import tempfile
+                import uuid
+                
+                temp_path = f"/tmp/classify_{uuid.uuid4().hex}.jpg"
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                        if response.status == 200:
+                            with open(temp_path, 'wb') as f:
+                                async for chunk in response.content.iter_chunked(8192):
+                                    f.write(chunk)
+                            
+                            # Run object detection
+                            detections = await detector.detect_objects(temp_path, MODOMO_TAXONOMY)
+                            
+                            # Clean up
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                            
+                            if detections:
+                                detection_classification = analyze_detections_for_classification(detections)
+                            
+            except Exception as e:
+                logger.warning(f"Detection-based classification failed: {e}")
+        
+        # Step 3: Combine heuristics for final classification
+        if detection_classification:
+            # Use AI detection results as primary signal
+            classification.update(detection_classification)
+            classification["confidence"] = min(0.9, classification["confidence"] + 0.2)
+            classification["reason"] = f"ai_detection_{detection_classification.get('reason', 'unknown')}"
+            
+        elif object_score > scene_score and object_score >= 2.0:
+            # Strong object indicators detected
+            classification.update({
+                "image_type": "object",
+                "is_primary_object": True,
+                "confidence": min(0.9, 0.6 + (object_score * 0.05)),
+                "reason": f"text_analysis_object_score_{object_score:.1f}"
+            })
+            
+            # Enhanced primary category detection
+            primary_category = detect_primary_category_from_text(combined_text)
+            if primary_category:
+                classification["primary_category"] = primary_category
+                classification["confidence"] += 0.1
+                    
+        elif scene_score >= 1.5 or detected_room_type:
+            # Strong scene indicators or room type detected
+            image_type = "scene"
+            
+            # Check for hybrid classification
+            if hybrid_score >= 1.0 and object_score >= 1.0:
+                image_type = "hybrid"
+            
+            classification.update({
+                "image_type": image_type,
+                "is_primary_object": image_type == "hybrid",
+                "confidence": min(0.9, 0.6 + (scene_score * 0.03)),
+                "reason": f"text_analysis_scene_score_{scene_score:.1f}_room_{detected_room_type or 'unknown'}"
+            })
+            
+            # For hybrid images, try to detect primary category
+            if image_type == "hybrid":
+                primary_category = detect_primary_category_from_text(combined_text)
+                if primary_category:
+                    classification["primary_category"] = primary_category
+                    
+        elif style_score >= 2.0:
+            # Strong style indicators suggest interior design content
+            classification.update({
+                "image_type": "scene",
+                "confidence": min(0.8, 0.5 + (style_score * 0.02)),
+                "reason": f"style_analysis_score_{style_score:.1f}"
+            })
+            
+        # Add enhanced metadata to classification result
+        classification["metadata"] = {
+            "scores": {
+                "object": round(object_score, 1),
+                "scene": round(scene_score, 1), 
+                "hybrid": round(hybrid_score, 1),
+                "style": round(style_score, 1)
+            },
+            "detected_room_type": detected_room_type,
+            "detected_styles": detect_styles_from_text(combined_text, style_keywords),
+            "keyword_matches": {
+                "object_matches": [kw for kw in object_keywords if kw.lower() in combined_text],
+                "scene_matches": [kw for kw in scene_keywords if kw.lower() in combined_text]
+            }
+        }
+        
+        logger.info(f"Image classification: {classification['image_type']} (confidence: {classification['confidence']:.2f}, reason: {classification['reason']}, room: {detected_room_type})")
+        return classification
+        
+    except Exception as e:
+        logger.error(f"Image classification failed: {e}")
+        return {
+            "image_type": "scene",
+            "is_primary_object": False, 
+            "primary_category": None,
+            "confidence": 0.3,
+            "reason": f"classification_error_{str(e)[:50]}"
+        }
+
+def analyze_detections_for_classification(detections: List[Dict]) -> Dict[str, Any]:
+    """
+    Analyze object detections to classify image type.
+    
+    Classification logic:
+    - object: 1-2 high-confidence objects, similar category
+    - scene: 3+ objects, diverse categories
+    - hybrid: 1 dominant object + background elements
+    """
+    if not detections:
+        return {"image_type": "scene", "confidence": 0.4, "reason": "no_detections"}
+    
+    # Filter high-confidence detections
+    high_conf_detections = [d for d in detections if d.get("confidence", 0) > 0.7]
+    
+    num_detections = len(detections)
+    num_high_conf = len(high_conf_detections)
+    
+    # Get categories
+    categories = [d.get("category", "unknown") for d in detections]
+    unique_categories = set(categories)
+    
+    # Find dominant category
+    from collections import Counter
+    category_counts = Counter(categories)
+    dominant_category, dominant_count = category_counts.most_common(1)[0] if category_counts else ("unknown", 0)
+    
+    # Classification logic
+    if num_detections == 1:
+        return {
+            "image_type": "object",
+            "is_primary_object": True,
+            "primary_category": dominant_category,
+            "confidence": 0.85,
+            "reason": "single_detection"
+        }
+    elif num_detections == 2 and len(unique_categories) <= 2:
+        return {
+            "image_type": "object",
+            "is_primary_object": True,
+            "primary_category": dominant_category,
+            "confidence": 0.75,
+            "reason": "two_similar_objects"
+        }
+    elif num_high_conf >= 3 and len(unique_categories) >= 3:
+        return {
+            "image_type": "scene",
+            "is_primary_object": False,
+            "primary_category": None,
+            "confidence": 0.8,
+            "reason": "diverse_objects_scene"
+        }
+    elif dominant_count >= num_detections * 0.6:
+        # One category dominates
+        return {
+            "image_type": "hybrid",
+            "is_primary_object": True,
+            "primary_category": dominant_category,
+            "confidence": 0.7,
+            "reason": "dominant_category_hybrid"
+        }
+    else:
+        return {
+            "image_type": "scene",
+            "is_primary_object": False,
+            "primary_category": None,
+            "confidence": 0.6,
+            "reason": "mixed_detection_scene"
+        }
 
 async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool):
     """Import dataset from HuggingFace and process with AI pipeline"""
@@ -1745,17 +2477,27 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                     r2_key = None
                     r2_url = None
 
-                # Step 3: Store scene in database with R2 references
+                # Step 3: Classify image type and store scene in database with R2 references
                 if supabase:
                     try:
+                        # Pre-classify image type based on available data
+                        image_classification = await classify_image_type(image_url, caption)
+                        
                         scene_data = {
                             "houzz_id": scene_id,
                             "image_url": image_url,
                             "image_r2_key": r2_key,
+                            "image_type": image_classification["image_type"],
+                            "is_primary_object": image_classification["is_primary_object"],
+                            "primary_category": image_classification["primary_category"],
                             "room_type": room_type,
                             "style_tags": [caption] if caption else [],
                             "color_tags": [],
-                            "status": "scraped"
+                            "status": "scraped",
+                            "metadata": {
+                                "classification_confidence": image_classification["confidence"],
+                                "classification_reason": image_classification["reason"]
+                            }
                         }
                         
                         logger.info(f"📝 Attempting to store scene {scene_id} with data: {scene_data}")

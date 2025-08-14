@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 # Install system dependencies for AI, SAM2, and Playwright
+# Updated for Debian Trixie compatibility
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -10,7 +11,10 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    libglx-mesa0 \
+    mesa-common-dev \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -31,29 +35,29 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libpango-1.0-0 \
     libasound2 \
+    libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements files
-COPY requirements-minimal.txt requirements-full.txt requirements-ai-stable.txt ./
+# Copy requirements files  
+COPY requirements-railway-complete.txt requirements-railway-fixed.txt requirements-minimal.txt requirements-full.txt requirements-ai-stable.txt ./
 
 # Always use full AI mode for production
 ARG AI_MODE=full
 ENV AI_MODE_BUILD=${AI_MODE}
 ENV AI_MODE=full
 
-# Always install AI dependencies - no fallback to minimal
-RUN echo "🤖 Installing AI dependencies with SAM2 for production..." && \
+# Install optimized dependencies for Railway deployment with caching
+RUN echo "🚀 Installing optimized AI dependencies for Railway (with caching)..." && \
     pip install --upgrade pip && \
-    pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements-ai-stable.txt && \
-    echo "🔥 Installing SAM2 and CLIP from source..." && \
-    pip install --no-cache-dir git+https://github.com/facebookresearch/segment-anything-2.git && \
-    pip install --no-cache-dir git+https://github.com/openai/CLIP.git && \
-    pip install --no-cache-dir iopath hydra-core omegaconf && \
-    echo "✅ All AI dependencies including SAM2 and CLIP installed successfully"
+    pip install -r requirements-railway-complete.txt && \
+    echo "🔥 Installing SAM2 and additional models..." && \
+    pip install git+https://github.com/facebookresearch/segment-anything-2.git && \
+    pip install git+https://github.com/openai/CLIP.git && \
+    pip install iopath hydra-core omegaconf && \
+    echo "✅ All optimized dependencies with enhanced classification installed (cached)"
 
 # Install Playwright browsers for web scraping
 RUN python -m playwright install-deps && \
@@ -62,20 +66,50 @@ RUN python -m playwright install-deps && \
 # Copy application code
 COPY . .
 
-# Create directories for temp files and models
-RUN mkdir -p /app/temp /app/downloads /app/models /app/checkpoints
+# Explicitly ensure models directory and __init__.py are copied
+COPY models/ /app/models/
+COPY models/__init__.py /app/models/__init__.py
 
-# Download SAM2 model checkpoints
-RUN echo "📦 Downloading SAM2 model checkpoints..." && \
-    cd /app/checkpoints && \
-    wget -q https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt && \
-    wget -q https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt && \
-    echo "✅ SAM2 checkpoints downloaded successfully" || echo "⚠️ SAM2 checkpoint download failed, will use fallback"
+# Verify models directory structure
+RUN echo "🔍 Verifying models directory structure..." && \
+    ls -la /app/models/ && \
+    echo "🔍 __init__.py exists: $(test -f /app/models/__init__.py && echo 'YES' || echo 'NO')" && \
+    echo "✅ Models directory verification complete"
 
-# Set environment variables
-ENV PYTHONPATH=/app
+# Create directories for temp files and models (Railway Volume will mount to /app/models)
+RUN mkdir -p /app/temp /app/downloads /app/checkpoints
+
+# Setup model directories - models will be stored on Railway Volume
+RUN echo "📦 Setting up model directories for Railway Volume..." && \
+    mkdir -p /app/models/sam2 /app/models/clip /app/models/grounding_dino && \
+    echo "✅ Model directories ready for Railway Volume mount"
+
+# Setup additional cache directories for Phase 2 optimization
+RUN echo "🚀 Setting up Phase 2 cache directories..." && \
+    mkdir -p /app/cache_volume/huggingface /app/cache_volume/spacy /app/cache_volume/playwright /app/cache_volume/pip /app/cache_volume/nltk /app/cache_volume/matplotlib && \
+    echo "✅ Phase 2 cache directories ready"
+
+# Set environment variables for enhanced classification system
+ENV PYTHONPATH=/app:/app/models
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 ENV PORT=8001
 ENV AI_MODE=${AI_MODE}
+ENV CLASSIFICATION_ENHANCED=true
+ENV KEYWORD_SYSTEM_VERSION=2.0
+ENV MODEL_CACHE_DIR=/app/models
+ENV SAM2_CHECKPOINT_DIR=/app/models/sam2
+ENV CLIP_CACHE_DIR=/app/models/clip
+
+# Phase 2 cache optimization environment variables
+ENV TRANSFORMERS_CACHE=/app/cache_volume/huggingface
+ENV HF_HOME=/app/cache_volume/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/cache_volume/huggingface/sentence_transformers
+ENV SPACY_DATA=/app/cache_volume/spacy
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/cache_volume/playwright
+ENV PIP_CACHE_DIR=/app/cache_volume/pip
+ENV NLTK_DATA=/app/cache_volume/nltk
+ENV MPLCONFIGDIR=/app/cache_volume/matplotlib
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
