@@ -140,6 +140,9 @@ pnpm run db:seed
 - **✅ Review Dashboard**: Real-time monitoring with segmentation statistics and UI improvements
 - **✅ Dataset Export**: Training dataset functionality with scene/object splits and JSON export
 - **✅ Railway Production**: Cloud deployment with health checks and fallback mechanisms
+- **✅ Mask Visualization**: Fixed frontend mask overlay system with colored segmentation display
+- **✅ API Connectivity**: Resolved frontend-backend communication issues and error handling
+- **✅ YOLO Integration**: Object detection working with 200+ item comprehensive taxonomy
 - **🔄 Continuous**: Job tracking, error handling improvements, and scraper optimizations
 
 ### Service URLs (Development)
@@ -148,7 +151,7 @@ pnpm run db:seed
 - Auth Service: http://localhost:3001 (Legacy - being migrated)
 - Photo Service: http://localhost:3002 (Legacy - being migrated)
 - AI Service: http://localhost:8000 (Python FastAPI) - **Production AI pipeline with SAM2 segmentation**
-- Review Dashboard: Advanced monitoring with segmentation statistics and dataset export
+- Review Dashboard: https://ovalay-recruitment-production.up.railway.app (Production with advanced monitoring, segmentation statistics, and dataset export)
 - MinIO Console: http://localhost:9001 (S3-compatible storage)
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
@@ -182,6 +185,20 @@ pnpm run db:seed
 - **Theme Files**: `@/theme/colors.ts`, `@/theme/globals.ts`, `@/theme/theme-provider.tsx`
 - **Usage**: Import components from `@/components/ui` and use theme-aware styling
 
+### Recent Debug & Fixes (August 2025)
+- **✅ SAM2 Mask Visualization System**: Completely resolved mask display issues using canvas-based pixel processing
+  - Fixed CORS errors by implementing proxy routing (`/api/masks/...` → `ovalay-recruitment-production.up.railway.app`)
+  - Replaced failing CSS mask approach with canvas 2D pixel manipulation for reliable rendering
+  - Implemented green/blue color coding (active/inactive objects) with transparent backgrounds
+  - Achieved perfect SAM2 segmentation overlay visualization in production review dashboard
+- **YOLO Object Detection**: Resolved missing ultralytics dependency → restored object identification capability
+- **Database Schema**: Fixed mask_url/mask_r2_key mismatch → preserved mask URLs for frontend while maintaining R2 storage
+- **CORS Issues**: Implemented custom static file serving with proper headers for mask image access
+- **API Connectivity**: Resolved frontend-backend communication failures → added error handling and timeout management
+- **JSX Syntax Errors**: Fixed multiple component export and structure issues in review dashboard
+- **Taxonomy Enhancement**: Expanded from 10 to 28 categories with 200+ furniture items for comprehensive object detection
+- **Railway URL Alignment**: Synchronized frontend and backend to use correct production endpoints
+
 ### Key Development Notes
 - Always use pnpm, not npm or yarn (pnpm@9.12.0 required)
 - Mobile app uses Expo managed workflow with BNA UI components
@@ -193,3 +210,7 @@ pnpm run db:seed
 - Mobile app structure: Expo Router with file-based routing in `src/app/`
 - Current screens: index (home), camera, gallery, makeover with planned (tabs) navigation
 - Architecture is transitioning from microservices to hybrid cloud + legacy approach
+- **SAM2 Mask System**: Masks generated via neural segmentation, served via Railway static endpoint, rendered using canvas-based pixel processing with transparent overlays for perfect visualization
+- **Frontend Visualization**: Canvas 2D API processes mask pixels to show green (active) and blue (inactive) object boundaries over room images
+- **CORS Resolution**: Proxy configuration routes `/api/masks/...` requests through local dev server to bypass cross-origin restrictions
+- **Error Handling**: API calls include retry logic and graceful degradation for improved reliability

@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react'
+// import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { Check, X, Edit3, Package, Loader2, Eye, EyeOff, Target } from 'lucide-react'
 import { DetectedObject, Scene, Product } from '../types'
@@ -44,43 +45,136 @@ function MaskOverlay({
 }) {
   const [maskLoaded, setMaskLoaded] = useState(false)
   const [maskError, setMaskError] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  
+  const drawColoredMask = useCallback(() => {
+    const canvas = canvasRef.current
+    const image = imageRef.current
+    if (!canvas || !image || !maskLoaded) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    // Set canvas size to match container
+    const container = canvas.parentElement
+    if (container) {
+      canvas.width = container.clientWidth
+      canvas.height = container.clientHeight
+    }
+    
+    // Clear canvas with transparent background
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    
+    // Calculate scaling to fit mask image
+    const aspectRatio = image.naturalWidth / image.naturalHeight
+    const containerRatio = canvas.width / canvas.height
+    
+    let drawWidth, drawHeight, drawX, drawY
+    
+    if (aspectRatio > containerRatio) {
+      drawWidth = canvas.width
+      drawHeight = canvas.width / aspectRatio
+      drawX = 0
+      drawY = (canvas.height - drawHeight) / 2
+    } else {
+      drawHeight = canvas.height
+      drawWidth = canvas.height * aspectRatio
+      drawX = (canvas.width - drawWidth) / 2
+      drawY = 0
+    }
+    
+    // Create a temporary canvas for processing
+    const tempCanvas = document.createElement('canvas')
+    const tempCtx = tempCanvas.getContext('2d')
+    if (!tempCtx) return
+    
+    tempCanvas.width = drawWidth
+    tempCanvas.height = drawHeight
+    
+    // Draw mask on temp canvas
+    tempCtx.drawImage(image, 0, 0, drawWidth, drawHeight)
+    
+    // Get pixel data
+    const imageData = tempCtx.getImageData(0, 0, drawWidth, drawHeight)
+    const data = imageData.data
+    
+    // Process pixels - only color non-transparent areas
+    const color = isActive ? [34, 197, 94, 150] : [59, 130, 246, 100] // Green/Blue with alpha
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i]
+      const g = data[i + 1] 
+      const b = data[i + 2]
+      const a = data[i + 3]
+      
+      // If pixel is not transparent and has some brightness (white/gray parts of mask)
+      if (a > 50 && (r > 100 || g > 100 || b > 100)) {
+        data[i] = color[0]     // R
+        data[i + 1] = color[1] // G  
+        data[i + 2] = color[2] // B
+        data[i + 3] = color[3] // A
+      } else {
+        // Make dark/transparent parts fully transparent
+        data[i + 3] = 0
+      }
+    }
+    
+    // Put processed data back
+    tempCtx.putImageData(imageData, 0, 0)
+    
+    // Draw the colored mask onto main canvas
+    ctx.drawImage(tempCanvas, drawX, drawY)
+  }, [maskUrl, isActive, maskLoaded])
+  
+  useEffect(() => {
+    if (maskLoaded) {
+      drawColoredMask()
+    }
+  }, [maskLoaded, drawColoredMask])
+  
+  // Redraw on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (maskLoaded) {
+        setTimeout(drawColoredMask, 100)
+      }
+    }
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [drawColoredMask, maskLoaded])
   
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Color overlay using mask */}
-      <div className="absolute inset-0">
-        <div
-          className="w-full h-full"
-          style={{
-            backgroundColor: isActive ? 'rgba(34, 197, 94, 0.4)' : 'rgba(59, 130, 246, 0.3)', // Green for active, blue for inactive
-            mask: `url(${maskUrl})`,
-            WebkitMask: `url(${maskUrl})`,
-            maskSize: 'contain',
-            WebkitMaskSize: 'contain',
-            maskRepeat: 'no-repeat',
-            WebkitMaskRepeat: 'no-repeat',
-            maskPosition: 'center',
-            WebkitMaskPosition: 'center'
-          }}
-        />
-        
-        {/* Hidden image for load tracking */}
-        <img
-          src={maskUrl}
-          alt="Object mask"
-          className="hidden"
-          onLoad={() => {
-            setMaskLoaded(true)
-            setMaskError(false)
-            console.log('SAM2 mask loaded successfully:', maskUrl)
-          }}
-          onError={(e) => {
-            setMaskError(true)
-            setMaskLoaded(false)
-            console.warn('Failed to load SAM2 mask:', maskUrl)
-          }}
-        />
-      </div>
+      {/* Hidden image to load the mask */}
+      <img
+        ref={imageRef}
+        src={maskUrl}
+        alt="Object mask"
+        className="hidden"
+        onLoad={() => {
+          setMaskLoaded(true)
+          setMaskError(false)
+          console.log('SAM2 mask loaded successfully:', maskUrl)
+          setTimeout(drawColoredMask, 50) // Small delay to ensure canvas is ready
+        }}
+        onError={(e) => {
+          setMaskError(true)
+          setMaskLoaded(false)
+          console.warn('Failed to load SAM2 mask:', maskUrl)
+        }}
+      />
+      
+      {/* Canvas for rendering colored mask */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        style={{ 
+          pointerEvents: 'none',
+          mixBlendMode: 'normal'
+        }}
+      />
       
       {/* Fallback indicator for broken masks */}
       {maskError && (

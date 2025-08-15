@@ -23,9 +23,40 @@ apiClient.interceptors.request.use(
   }
 )
 
+// Transform mask URLs to use proxy instead of absolute URLs
+const transformMaskUrls = (data: any): any => {
+  if (!data) return data
+  
+  if (typeof data === 'string' && data.includes('/masks/') && data.includes('ovalay-recruitment-production.up.railway.app')) {
+    return data.replace('https://ovalay-recruitment-production.up.railway.app', '/api')
+  }
+  
+  if (Array.isArray(data)) {
+    return data.map(transformMaskUrls)
+  }
+  
+  if (typeof data === 'object') {
+    const transformed: any = {}
+    for (const [key, value] of Object.entries(data)) {
+      if (key === 'mask_url' && typeof value === 'string' && value.includes('ovalay-recruitment-production.up.railway.app')) {
+        transformed[key] = value.replace('https://ovalay-recruitment-production.up.railway.app', '/api')
+      } else {
+        transformed[key] = transformMaskUrls(value)
+      }
+    }
+    return transformed
+  }
+  
+  return data
+}
+
 // Add response interceptor for error handling
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Transform mask URLs in response data
+    response.data = transformMaskUrls(response.data)
+    return response
+  },
   (error) => {
     console.error('API Response Error:', error.response?.data || error.message)
     return Promise.reject(error)
