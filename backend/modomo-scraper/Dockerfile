@@ -97,7 +97,7 @@ RUN echo "📦 Setting up model cache directories for Railway Volume..." && \
 
 # Setup additional cache directories for Phase 2 optimization
 RUN echo "🚀 Setting up Phase 2 cache directories..." && \
-    mkdir -p /app/cache_volume/huggingface /app/cache_volume/spacy /app/cache_volume/playwright /app/cache_volume/pip /app/cache_volume/nltk /app/cache_volume/matplotlib && \
+    mkdir -p /app/cache_volume/huggingface /app/cache_volume/spacy /app/cache_volume/playwright /app/cache_volume/pip /app/cache_volume/nltk /app/cache_volume/matplotlib /app/cache_volume/masks && \
     echo "✅ Phase 2 cache directories ready"
 
 # Set environment variables for enhanced classification system

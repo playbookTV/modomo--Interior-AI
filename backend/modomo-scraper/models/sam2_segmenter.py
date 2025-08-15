@@ -115,7 +115,7 @@ class SegmentationConfig:
     
     # Memory management
     max_image_size: int = 2048     # Max dimension before resizing
-    cleanup_temp_files: bool = True
+    cleanup_temp_files: bool = False
 
 class SAM2Segmenter:
     """
@@ -190,7 +190,7 @@ class SAM2Segmenter:
             
             # Generate unique output path
             mask_id = f"mask_{uuid.uuid4().hex[:8]}"
-            output_dir = "/tmp/masks"  # Use the mounted static directory
+            output_dir = "/app/cache_volume/masks"  # Use persistent cache directory
             os.makedirs(output_dir, exist_ok=True)
             
             result = await self.segment_advanced(

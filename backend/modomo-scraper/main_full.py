@@ -5,6 +5,7 @@ Complete system with GroundingDINO, SAM2, and CLIP embeddings
 
 import asyncio
 import os
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import uuid
@@ -145,7 +146,7 @@ app.add_middleware(
 )
 
 # Create masks directory and mount static files
-masks_dir = "/tmp/masks"
+masks_dir = "/app/cache_volume/masks"
 os.makedirs(masks_dir, exist_ok=True)
 app.mount("/masks", StaticFiles(directory=masks_dir), name="masks")
 
@@ -167,16 +168,80 @@ except Exception as e:
 
 # Enhanced Configuration for better object detection
 MODOMO_TAXONOMY = {
-    "seating": ["sofa", "sectional", "armchair", "dining_chair", "stool", "bench"],
-    "tables": ["coffee_table", "side_table", "dining_table", "console_table", "desk", "nightstand"],
-    "storage": ["bookshelf", "cabinet", "dresser", "wardrobe"],
-    "lighting": ["pendant_light", "floor_lamp", "table_lamp", "wall_sconce"],
-    "soft_furnishings": ["rug", "curtains", "pillow", "blanket"],
-    "decor": ["wall_art", "mirror", "plant", "decorative_object"],
-    "bed_bath": ["bed_frame", "mattress", "headboard", "bathtub", "sink_vanity"],
-    "architectural": ["window", "door", "fireplace"],
-    "electronics": ["tv", "television"],
-    "bathroom_fixtures": ["toilet", "shower"]
+    # Primary Furniture Categories
+    "seating": ["sofa", "sectional", "armchair", "dining_chair", "stool", "bench", "loveseat", "recliner", "chaise_lounge", "bar_stool", "office_chair", "accent_chair", "ottoman", "pouffe"],
+    
+    "tables": ["coffee_table", "side_table", "dining_table", "console_table", "desk", "nightstand", "end_table", "accent_table", "writing_desk", "computer_desk", "bar_table", "bistro_table", "nesting_tables", "dressing_table"],
+    
+    "storage": ["bookshelf", "cabinet", "dresser", "wardrobe", "armoire", "chest_of_drawers", "credenza", "sideboard", "buffet", "china_cabinet", "display_cabinet", "tv_stand", "media_console", "shoe_cabinet", "pantry_cabinet"],
+    
+    "bedroom": ["bed_frame", "mattress", "headboard", "footboard", "bed_base", "platform_bed", "bunk_bed", "daybed", "murphy_bed", "crib", "bassinet", "changing_table"],
+    
+    # Lighting & Electrical
+    "lighting": ["pendant_light", "floor_lamp", "table_lamp", "wall_sconce", "chandelier", "ceiling_light", "track_lighting", "recessed_light", "under_cabinet_light", "desk_lamp", "reading_light", "accent_lighting", "string_lights"],
+    
+    "ceiling_fixtures": ["ceiling_fan", "smoke_detector", "air_vent", "skylight", "beam", "molding", "medallion"],
+    
+    # Kitchen & Appliances
+    "kitchen_cabinets": ["upper_cabinet", "lower_cabinet", "kitchen_island", "breakfast_bar", "pantry", "spice_rack", "wine_rack"],
+    
+    "kitchen_appliances": ["refrigerator", "stove", "oven", "microwave", "dishwasher", "range_hood", "garbage_disposal", "coffee_maker", "toaster", "blender"],
+    
+    "kitchen_fixtures": ["kitchen_sink", "faucet", "backsplash", "countertop", "kitchen_island_top"],
+    
+    # Bathroom & Fixtures
+    "bathroom_fixtures": ["toilet", "shower", "bathtub", "sink_vanity", "bathroom_sink", "shower_door", "shower_curtain", "medicine_cabinet", "towel_rack", "toilet_paper_holder"],
+    
+    "bathroom_storage": ["linen_closet", "bathroom_cabinet", "vanity_cabinet", "over_toilet_storage"],
+    
+    # Textiles & Soft Furnishings
+    "window_treatments": ["curtains", "drapes", "blinds", "shades", "shutters", "valance", "cornice", "window_film"],
+    
+    "soft_furnishings": ["rug", "carpet", "pillow", "cushion", "throw_pillow", "blanket", "throw", "bedding", "duvet", "comforter", "sheets", "pillowcase"],
+    
+    "upholstery": ["sofa_cushions", "chair_cushions", "seat_cushions", "back_cushions"],
+    
+    # Decor & Accessories
+    "wall_decor": ["wall_art", "painting", "photograph", "poster", "wall_sculpture", "wall_clock", "decorative_plate", "wall_shelf", "floating_shelf"],
+    
+    "decor_accessories": ["mirror", "plant", "vase", "candle", "sculpture", "decorative_bowl", "picture_frame", "clock", "lamp_shade", "decorative_object"],
+    
+    "plants_planters": ["potted_plant", "hanging_plant", "planter", "flower_pot", "garden_planter", "herb_garden"],
+    
+    # Architectural Elements
+    "doors_windows": ["door", "window", "french_doors", "sliding_door", "bifold_door", "pocket_door", "window_frame", "door_frame"],
+    
+    "architectural_features": ["fireplace", "mantle", "column", "pillar", "archway", "niche", "built_in_shelf", "wainscoting", "chair_rail"],
+    
+    "flooring": ["hardwood_floor", "tile_floor", "carpet_floor", "laminate_floor", "vinyl_floor", "stone_floor"],
+    
+    "wall_features": ["accent_wall", "brick_wall", "stone_wall", "wood_paneling", "wallpaper"],
+    
+    # Electronics & Technology
+    "entertainment": ["tv", "television", "stereo", "speakers", "gaming_console", "dvd_player", "sound_bar"],
+    
+    "home_office": ["computer", "monitor", "printer", "desk_accessories", "filing_cabinet", "desk_organizer"],
+    
+    "smart_home": ["smart_speaker", "security_camera", "thermostat", "smart_switch", "home_hub"],
+    
+    # Outdoor & Patio
+    "outdoor_furniture": ["patio_chair", "outdoor_table", "patio_umbrella", "outdoor_sofa", "deck_chair", "garden_bench", "outdoor_dining_set"],
+    
+    "outdoor_decor": ["outdoor_plant", "garden_sculpture", "outdoor_lighting", "wind_chime", "bird_feeder"],
+    
+    # Specialty Items
+    "exercise_equipment": ["treadmill", "exercise_bike", "weights", "yoga_mat", "exercise_ball"],
+    
+    "children_furniture": ["toy_chest", "kids_table", "kids_chair", "high_chair", "play_table", "toy_storage"],
+    
+    "office_furniture": ["conference_table", "office_desk", "executive_chair", "meeting_chair", "whiteboard", "bulletin_board"],
+    
+    # Miscellaneous
+    "room_dividers": ["screen", "room_divider", "partition", "bookcase_divider"],
+    
+    "seasonal_decor": ["christmas_tree", "holiday_decoration", "seasonal_pillow", "seasonal_wreath"],
+    
+    "hardware_fixtures": ["door_handle", "cabinet_hardware", "light_switch", "outlet", "vent_cover"]
 }
 
 # Pydantic models
@@ -447,8 +512,8 @@ async def search_objects_by_color(
                     "colors": obj.get("metadata", {}).get("colors")
                 })
         
-        # Perform color-based search
-        matches = await embedder.search_objects_by_color(
+        # Perform vector search
+        matches = await perform_vector_search(
             query, object_embeddings, object_ids, threshold, limit
         )
         
@@ -873,7 +938,7 @@ async def get_detected_objects(
         try:
             # Build query
             query = supabase.table("detected_objects").select(
-                "object_id, scene_id, category, confidence, bbox, tags, approved, metadata, created_at"
+                "object_id, scene_id, category, confidence, bbox, tags, approved, metadata, mask_r2_key, mask_url, created_at"
             )
             
             # Add filters
@@ -2375,14 +2440,16 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 if color_data:
                                     metadata["colors"] = color_data
                                 
-                                # Handle mask R2 key from mask_path
+                                # Handle mask URLs and R2 keys from mask_path
+                                mask_url = None
                                 mask_r2_key = None
                                 mask_path = detection.get("mask_path")
                                 if mask_path and os.path.exists(mask_path):
-                                    # Generate R2 key for the mask file
+                                    # Generate both URL for frontend and R2 key for storage
                                     mask_filename = os.path.basename(mask_path)
-                                    mask_r2_key = f"masks/{mask_filename}"
-                                    logger.info(f"Generated mask R2 key: {mask_r2_key} for path: {mask_path}")
+                                    mask_url = f"/masks/{mask_filename}"  # Public URL for frontend
+                                    mask_r2_key = f"masks/{mask_filename}"  # Storage key for R2
+                                    logger.info(f"Generated mask URL: {mask_url} and R2 key: {mask_r2_key} for path: {mask_path}")
                                 else:
                                     logger.warning(f"No valid mask path found: {mask_path}")
                                 
@@ -2404,15 +2471,15 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                     "clip_embedding_json": embedding_val,
                                     "approved": None,  # Needs manual review
                                     "metadata": metadata,
-                                    "mask_r2_key": mask_r2_key  # Add mask R2 key if available
+                                    "mask_url": mask_url,  # Public URL for frontend access
+                                    "mask_r2_key": mask_r2_key  # Storage key for R2
                                 }
                                 
                                 # Ensure all data is JSON serializable - apply recursively to catch all nested values
                                 object_data = make_json_serializable(object_data)
                                 
-                                # Remove any mask_url field that might have been accidentally included
-                                if 'mask_url' in object_data:
-                                    del object_data['mask_url']
+                                # Keep mask_url for frontend access and mask_r2_key for storage
+                                # Both fields are needed for proper frontend functionality
                                 
                                 # Double-check specific fields that might still have int64 values
                                 if 'bbox' in object_data:
@@ -2670,7 +2737,7 @@ async def get_review_queue(
             scene_id, houzz_id, image_url, room_type, style_tags, status,
             detected_objects(
                 object_id, bbox, category, confidence, tags, 
-                approved, matched_product_id, metadata
+                approved, matched_product_id, metadata, mask_r2_key, mask_url
             )
         """).not_.in_("status", ["approved", "rejected"])
         
