@@ -19,18 +19,33 @@ import { JobsMonitor } from '../components/JobsMonitor'
 import { DatasetImporter } from '../components/DatasetImporter'
 
 export function Dashboard() {
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
     queryKey: ['dataset-stats'],
-    queryFn: getDatasetStats
+    queryFn: getDatasetStats,
+    retry: 2,
+    retryDelay: 1000,
+    onError: (error) => {
+      console.error('Dataset stats fetch failed:', error)
+    }
   })
   const { data: categoryStats } = useQuery({
     queryKey: ['category-stats'],
-    queryFn: getCategoryStats
+    queryFn: getCategoryStats,
+    retry: 2,
+    retryDelay: 1000,
+    onError: (error) => {
+      console.warn('Category stats fetch failed:', error)
+    }
   })
   const { data: activeJobs } = useQuery({
     queryKey: ['active-jobs'],
     queryFn: getActiveJobs,
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 10000, // Refresh every 10 seconds (slower)
+    retry: 0, // Don't retry for now
+    enabled: false, // Temporarily disable to test dashboard
+    onError: (error) => {
+      console.warn('Active jobs fetch failed:', error.message)
+    }
   })
 
   if (statsLoading) {
@@ -39,6 +54,15 @@ export function Dashboard() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
+  }
+
+  // Debug logging
+  console.log('Dashboard stats:', stats)
+  console.log('Category stats:', categoryStats)
+  console.log('Active jobs:', activeJobs)
+
+  if (statsError) {
+    console.error('Stats error:', statsError)
   }
 
   const approvalRate = stats ? (stats.approved_objects / stats.total_objects * 100) : 0

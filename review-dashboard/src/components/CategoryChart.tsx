@@ -6,11 +6,13 @@ interface CategoryChartProps {
 }
 
 export function CategoryChart({ data }: CategoryChartProps) {
-  const maxObjects = Math.max(...data.map(d => d.total_objects))
+  // Add safety check for data array
+  const safeData = Array.isArray(data) ? data : []
+  const maxObjects = safeData.length > 0 ? Math.max(...safeData.map(d => d.total_objects)) : 0
 
   return (
     <div className="space-y-4">
-      {data.map((category) => {
+      {safeData.length > 0 ? safeData.map((category) => {
         const percentage = maxObjects > 0 ? (category.total_objects / maxObjects) * 100 : 0
         const approvalRate = category.total_objects > 0 
           ? (category.approved_objects / category.total_objects) * 100 
@@ -42,7 +44,11 @@ export function CategoryChart({ data }: CategoryChartProps) {
             </div>
           </div>
         )
-      })}
+      }) : (
+        <div className="text-center text-gray-500 py-4">
+          No category data available
+        </div>
+      )}
     </div>
   )
 }

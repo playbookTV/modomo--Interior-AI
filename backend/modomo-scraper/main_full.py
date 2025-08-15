@@ -145,10 +145,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create masks directory and mount static files
+# Create masks directory and mount static files with CORS support
 masks_dir = "/app/cache_volume/masks"
 os.makedirs(masks_dir, exist_ok=True)
-app.mount("/masks", StaticFiles(directory=masks_dir), name="masks")
+
+# Custom static file handler with CORS headers
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+import os.path
+
+@app.get("/masks/{filename}")
+async def serve_mask(filename: str):
+    """Serve mask files with CORS headers"""
+    file_path = os.path.join(masks_dir, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Mask file not found")
+    
+    # Return file with CORS headers
+    response = FileResponse(
+        file_path,
+        media_type="image/png",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+        }
+    )
+    return response
+
+# Handle OPTIONS preflight requests for masks
+@app.options("/masks/{filename}")
+async def mask_options(filename: str):
+    """Handle CORS preflight requests for mask files"""
+    from fastapi import Response
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # Global instances
 supabase: Client = None
@@ -274,6 +313,8 @@ async def startup():
         SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
         
         logger.info(f"🔍 Supabase config check: URL={'✅' if SUPABASE_URL else '❌'}, KEY={'✅' if SUPABASE_ANON_KEY else '❌'}")
+        
+
         
         if SUPABASE_URL and SUPABASE_ANON_KEY:
             try:
@@ -2447,7 +2488,8 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                                 if mask_path and os.path.exists(mask_path):
                                     # Generate both URL for frontend and R2 key for storage
                                     mask_filename = os.path.basename(mask_path)
-                                    mask_url = f"/masks/{mask_filename}"  # Public URL for frontend
+                                    base_url = os.getenv("API_BASE_URL", "https://ovalay-recruitment-production.up.railway.app")
+                                    mask_url = f"{base_url}/masks/{mask_filename}"  # Absolute URL for frontend
                                     mask_r2_key = f"masks/{mask_filename}"  # Storage key for R2
                                     logger.info(f"Generated mask URL: {mask_url} and R2 key: {mask_r2_key} for path: {mask_path}")
                                 else:

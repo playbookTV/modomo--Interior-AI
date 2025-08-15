@@ -47,19 +47,28 @@ function MaskOverlay({
   
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Direct mask image display with color overlay */}
+      {/* Color overlay using mask */}
       <div className="absolute inset-0">
+        <div
+          className="w-full h-full"
+          style={{
+            backgroundColor: isActive ? 'rgba(34, 197, 94, 0.4)' : 'rgba(59, 130, 246, 0.3)', // Green for active, blue for inactive
+            mask: `url(${maskUrl})`,
+            WebkitMask: `url(${maskUrl})`,
+            maskSize: 'contain',
+            WebkitMaskSize: 'contain',
+            maskRepeat: 'no-repeat',
+            WebkitMaskRepeat: 'no-repeat',
+            maskPosition: 'center',
+            WebkitMaskPosition: 'center'
+          }}
+        />
+        
+        {/* Hidden image for load tracking */}
         <img
           src={maskUrl}
           alt="Object mask"
-          className="w-full h-full object-contain"
-          style={{
-            opacity: isActive ? 0.7 : 0.4,
-            filter: isActive 
-              ? 'hue-rotate(120deg) saturate(2) brightness(1.5)' // Green tint for active
-              : 'hue-rotate(240deg) saturate(2) brightness(1.5)', // Blue tint for inactive
-            mixBlendMode: 'multiply'
-          }}
+          className="hidden"
           onLoad={() => {
             setMaskLoaded(true)
             setMaskError(false)
@@ -488,69 +497,6 @@ export function ReviewInterface({
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-sm font-medium text-green-800 mb-1">Matched Product:</p>
             <p className="text-sm text-green-700">ID: {currentObject.matched_product_id}</p>
-          </div>
-        )}
-        
-        {/* Color Display */}
-        {currentObject.metadata?.colors && (
-          <div className="mb-4">
-            <p className="text-sm font-medium text-gray-700 mb-2">Colors:</p>
-            
-            {/* Dominant Color */}
-            {currentObject.metadata.colors.dominant_color && (
-              <div className="mb-3">
-                <p className="text-xs text-gray-600 mb-1">Dominant:</p>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-8 h-8 rounded border border-gray-300 shadow-sm"
-                    style={{ backgroundColor: currentObject.metadata.colors.dominant_color.hex }}
-                    title={`${currentObject.metadata.colors.dominant_color.name} (${currentObject.metadata.colors.dominant_color.hex})`}
-                  />
-                  <div>
-                    <p className="text-sm font-medium capitalize">{currentObject.metadata.colors.dominant_color.name}</p>
-                    <p className="text-xs text-gray-500">{currentObject.metadata.colors.dominant_color.hex}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Color Palette */}
-            {currentObject.metadata.colors.colors && currentObject.metadata.colors.colors.length > 0 && (
-              <div>
-                <p className="text-xs text-gray-600 mb-2">Color Palette:</p>
-                <div className="flex flex-wrap gap-2">
-                  {currentObject.metadata.colors.colors.slice(0, 5).map((color, index) => (
-                    <div 
-                      key={index}
-                      className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs"
-                      title={`${color.name} (${color.hex}) - ${color.percentage}%`}
-                    >
-                      <div 
-                        className="w-4 h-4 rounded border border-gray-300"
-                        style={{ backgroundColor: color.hex }}
-                      />
-                      <span className="capitalize">{color.name}</span>
-                      <span className="text-gray-500">({color.percentage}%)</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Color Properties */}
-            {currentObject.metadata.colors.properties && (
-              <div className="mt-2 text-xs text-gray-600">
-                <span>Brightness: {(currentObject.metadata.colors.properties.brightness * 100).toFixed(0)}%</span>
-                {currentObject.metadata.colors.properties.color_temperature && (
-                  <span className="ml-3 capitalize">
-                    Tone: {currentObject.metadata.colors.properties.color_temperature}
-                  </span>
-                )}
-                {currentObject.metadata.colors.properties.is_neutral && (
-                  <span className="ml-3 px-1 bg-gray-200 rounded">Neutral</span>
-                )}
-              </div>
-            )}
           </div>
         )}
         

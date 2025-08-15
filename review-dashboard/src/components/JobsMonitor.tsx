@@ -17,7 +17,7 @@ export function JobsMonitor({ jobs }: JobsMonitorProps) {
 
   return (
     <div className="space-y-3">
-      {jobs.map((job) => (
+      {Array.isArray(jobs) ? jobs.map((job) => (
         <div key={job.job_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
           <div className="flex-1">
             <div className="flex items-center space-x-3">
@@ -45,7 +45,7 @@ export function JobsMonitor({ jobs }: JobsMonitorProps) {
           
           <div className="text-right">
             <div className="text-xs text-gray-500">
-              Started: {new Date(job.created_at).toLocaleTimeString()}
+              Started: {job.created_at ? new Date(job.created_at).toLocaleTimeString() : 'Unknown'}
             </div>
             {job.error_message && (
               <div className="text-xs text-red-600 mt-1">
@@ -54,7 +54,11 @@ export function JobsMonitor({ jobs }: JobsMonitorProps) {
             )}
           </div>
         </div>
-      ))}
+      )) : (
+        <div className="text-center text-gray-500 py-4">
+          No active jobs
+        </div>
+      )}
     </div>
   )
 }

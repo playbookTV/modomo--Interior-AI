@@ -150,9 +150,11 @@ export const getProductSimilarities = async (
   return response.data
 }
 
-// Jobs monitoring
+// Jobs monitoring  
 export const getActiveJobs = async (): Promise<ScrapingJob[]> => {
-  const response = await apiClient.get('/jobs/active')
+  const response = await apiClient.get('/jobs/active', {
+    timeout: 5000 // Shorter timeout for jobs endpoint
+  })
   return response.data
 }
 
