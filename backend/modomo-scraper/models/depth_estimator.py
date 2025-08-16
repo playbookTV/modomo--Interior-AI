@@ -1,7 +1,8 @@
 """
-Depth Estimation with Depth Anything V2
+Depth Estimation with Fallback Support
 ---------------------------------------
-- State-of-the-art monocular depth estimation using Depth Anything V2
+- Primary: Depth Anything V2 (if available)
+- Fallback: ZoeDepth for Railway compatibility
 - CPU/GPU optimization support  
 - Memory management for constrained environments
 - Colormap visualization for depth maps
@@ -52,58 +53,98 @@ class DepthEstimator:
         self.model = None
         self.processor = None
         self.is_available = False
+        self.model_type = "none"
         
         logger.info(f"🔍 Initializing DepthEstimator on {config.device}")
         self._setup_model()
     
     def _setup_model(self):
-        """Initialize Depth Anything V2 model"""
+        """Initialize depth model with fallback support"""
+        
+        # Try Depth Anything V2 first
         try:
-            # Import Depth Anything V2
-            from depth_anything_v2.dpt import DepthAnythingV2
-            
-            # Model configurations from official repo
-            model_configs = {
-                'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
-                'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
-                'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
-                'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
-            }
-            
-            # Use Large model for best quality (vitl)
-            encoder = 'vitl'
-            self.model = DepthAnythingV2(**model_configs[encoder])
-            
-            # Try to load pretrained weights
-            model_path = self._download_model(encoder)
-            if model_path and os.path.exists(model_path):
-                checkpoint = torch.load(model_path, map_location='cpu')
-                self.model.load_state_dict(checkpoint)
-                logger.info("✅ Loaded Depth Anything V2 pretrained weights")
-            else:
-                logger.warning("⚠️ Using Depth Anything V2 without pretrained weights")
-            
-            # Move to device and set precision
-            self.model = self.model.to(self.config.device).eval()
-            if self.config.reduce_precision and self.config.device == "cuda":
-                self.model = self.model.half()
-                logger.info("🔧 Using half precision for GPU memory savings")
-            
-            # CPU optimizations
-            if self.config.device == "cpu" and self.config.cpu_optimization:
-                torch.set_num_threads(min(4, torch.get_num_threads()))
-                logger.info("🔧 CPU optimizations enabled")
-            
+            logger.info("🎯 Attempting to initialize Depth Anything V2...")
+            self._setup_depth_anything_v2()
+            self.model_type = "depth_anything_v2"
             self.is_available = True
             logger.info(f"✅ Depth Anything V2 initialized successfully on {self.config.device}")
-            
+            return
         except ImportError as e:
-            logger.error(f"❌ Depth Anything V2 not available: {e}")
-            logger.error("💡 Install with: git clone https://github.com/DepthAnything/Depth-Anything-V2")
-            raise RuntimeError("Depth Anything V2 is required for depth estimation")
+            logger.warning(f"⚠️ Depth Anything V2 not available: {e}")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Depth Anything V2: {e}")
-            raise
+            logger.warning(f"⚠️ Failed to initialize Depth Anything V2: {e}")
+        
+        # Fallback to MiDaS (Python 3.12+ compatible)
+        try:
+            logger.info("🔄 Falling back to MiDaS (Python 3.12+ compatible)...")
+            self._setup_midas()
+            self.model_type = "midas"
+            self.is_available = True
+            logger.info(f"✅ MiDaS initialized successfully on {self.config.device}")
+            return
+        except ImportError as e:
+            logger.warning(f"⚠️ MiDaS not available: {e}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize MiDaS: {e}")
+        
+        # No depth model available
+        logger.error("❌ No depth estimation model available")
+        logger.error("💡 Install one of:")
+        logger.error("   - Depth Anything V2: pip install git+https://github.com/badayvedat/Depth-Anything-V2.git@badayvedat-patch-1")
+        logger.error("   - MiDaS: pip install timm (should be available with transformers)")
+        self.is_available = False
+        self.model_type = "none"
+    
+    def _setup_depth_anything_v2(self):
+        """Initialize Depth Anything V2 model"""
+        # Import Depth Anything V2
+        from depth_anything_v2.dpt import DepthAnythingV2
+        
+        # Model configurations from official repo
+        model_configs = {
+            'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+            'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+            'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+            'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
+        }
+        
+        # Use Large model for best quality (vitl)
+        encoder = 'vitl'
+        self.model = DepthAnythingV2(**model_configs[encoder])
+        
+        # Try to load pretrained weights
+        model_path = self._download_model(encoder)
+        if model_path and os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location='cpu')
+            self.model.load_state_dict(checkpoint)
+            logger.info("✅ Loaded Depth Anything V2 pretrained weights")
+        else:
+            logger.warning("⚠️ Using Depth Anything V2 without pretrained weights")
+        
+        # Move to device and set precision
+        self.model = self.model.to(self.config.device).eval()
+        if self.config.reduce_precision and self.config.device == "cuda":
+            self.model = self.model.half()
+            logger.info("🔧 Using half precision for GPU memory savings")
+        
+        # CPU optimizations
+        if self.config.device == "cpu" and self.config.cpu_optimization:
+            torch.set_num_threads(min(4, torch.get_num_threads()))
+            logger.info("🔧 CPU optimizations enabled")
+    
+    def _setup_midas(self):
+        """Initialize MiDaS model as Python 3.12+ compatible fallback"""
+        from transformers import pipeline
+        
+        # Load MiDaS model via transformers pipeline (Python 3.12+ compatible)
+        logger.info("📦 Loading MiDaS model via transformers...")
+        self.model = pipeline(
+            "depth-estimation",
+            model="Intel/dpt-large",
+            device=0 if self.config.device == "cuda" and torch.cuda.is_available() else -1
+        )
+        
+        logger.info("🔧 MiDaS model loaded via transformers pipeline")
     
     def _download_model(self, encoder: str) -> Optional[str]:
         """Download Depth Anything V2 model weights"""
@@ -186,13 +227,25 @@ class DepthEstimator:
             image = Image.open(image_path)
             logger.info(f"🖼️ Processing image: {image.size}")
             
-            # Convert PIL image to OpenCV format (Depth Anything V2 expects BGR)
-            image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            
-            # Run depth estimation using official API
+            # Run depth estimation based on model type
             with torch.no_grad():
-                # Use the model's infer_image method
-                depth_array = self.model.infer_image(image_cv)
+                if self.model_type == "depth_anything_v2":
+                    # Convert PIL image to OpenCV format (Depth Anything V2 expects BGR)
+                    image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                    # Use the model's infer_image method
+                    depth_array = self.model.infer_image(image_cv)
+                elif self.model_type == "midas":
+                    # MiDaS via transformers pipeline expects PIL image
+                    result = self.model(image)
+                    depth_array = result["depth"]
+                    # Convert to numpy if needed
+                    if hasattr(depth_array, 'numpy'):
+                        depth_array = depth_array.numpy()
+                    elif torch.is_tensor(depth_array):
+                        depth_array = depth_array.cpu().numpy()
+                else:
+                    logger.error(f"❌ Unknown model type: {self.model_type}")
+                    return None
             
             # Normalize depth array to 0-1 range for visualization
             depth_normalized = (depth_array - depth_array.min()) / (depth_array.max() - depth_array.min())

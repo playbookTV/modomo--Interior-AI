@@ -1,0 +1,19 @@
+# Celery requirements for Modomo background tasks
+celery[redis]==5.3.4
+flower==2.0.1  # Web-based monitoring for Celery
+
+# Optional: Additional brokers and backends
+# celery[rabbitmq]==5.3.4  # If using RabbitMQ instead of Redis
+# celery[mongodb]==5.3.4   # If using MongoDB as result backend
+
+# Task scheduling (optional)
+celery-beat==2.5.0
+
+# For HuggingFace dataset imports
+datasets==2.18.0
+
+# Enhanced monitoring (optional)
+prometheus-client==0.20.0
+
+# Fix for Supabase websockets dependency
+websockets>=10.0,<12.0

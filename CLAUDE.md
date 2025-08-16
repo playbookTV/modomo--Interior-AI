@@ -110,6 +110,7 @@ pnpm run db:seed
 - **Backend**: Node.js 18+, Express, TypeScript, Supabase integration
 - **Cloud**: Railway hosting, Cloudflare R2 storage, Supabase database
 - **AI**: Python 3.11+, FastAPI, Stable Diffusion XL, SAM2 segmentation, Depth-Anything-V2, CLIP embeddings, Playwright web scraping
+- **Task Queue**: Celery 5.3.4 with Redis broker, Flower monitoring, background AI processing
 - **Databases**: PostgreSQL, Redis, Qdrant (vector DB)
 - **Storage**: MinIO (local dev), Cloudflare R2 (production)
 - **Package Manager**: pnpm 9.12.0 (required)
@@ -143,6 +144,10 @@ pnpm run db:seed
 - **✅ Mask Visualization**: Fixed frontend mask overlay system with colored segmentation display
 - **✅ API Connectivity**: Resolved frontend-backend communication issues and error handling
 - **✅ YOLO Integration**: Object detection working with 200+ item comprehensive taxonomy
+- **✅ Celery Task Queue**: Background processing with Redis, Flower monitoring, multi-queue routing
+- **✅ Depth Map Generation**: Depth Anything V2 integration with R2 storage and frontend visualization
+- **✅ Database Connectivity**: Supabase integration with dependency resolution and error handling
+- **✅ Service Architecture**: Refactored modular system with graceful degradation and monitoring
 - **🔄 Continuous**: Job tracking, error handling improvements, and scraper optimizations
 
 ### Service URLs (Development)
@@ -191,6 +196,21 @@ pnpm run db:seed
   - Replaced failing CSS mask approach with canvas 2D pixel manipulation for reliable rendering
   - Implemented green/blue color coding (active/inactive objects) with transparent backgrounds
   - Achieved perfect SAM2 segmentation overlay visualization in production review dashboard
+- **✅ Supabase Database Connectivity**: Resolved critical database connection issues
+  - Fixed websockets dependency conflict between Supabase and Gradio (`websockets==11.0.3`)
+  - Corrected FastAPI app initialization order (app defined before route decorators)
+  - Enhanced error logging to distinguish between package import vs credential issues
+  - Implemented proper startup sequence with configuration validation
+- **✅ Celery Background Processing**: Complete task queue implementation
+  - Added Celery 5.3.4 with Redis broker for distributed background tasks
+  - Implemented task routing across multiple queues (ai_processing, scraping, color_processing)
+  - Flower monitoring interface for real-time task tracking
+  - Background processing for AI detection, scraping, and color analysis
+- **✅ Depth Map Generation**: Enhanced map generation capabilities
+  - Depth Anything V2 integration with CPU/GPU optimization
+  - R2 storage for depth and edge maps at `/training-data/maps/`
+  - Frontend visualization components with canvas-based overlays
+  - Batch processing endpoints for scene map generation
 - **YOLO Object Detection**: Resolved missing ultralytics dependency → restored object identification capability
 - **Database Schema**: Fixed mask_url/mask_r2_key mismatch → preserved mask URLs for frontend while maintaining R2 storage
 - **CORS Issues**: Implemented custom static file serving with proper headers for mask image access

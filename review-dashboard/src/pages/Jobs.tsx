@@ -506,7 +506,7 @@ export function Jobs() {
                  performanceStatus.performance_status === 'limited' ? '⚠️ Limited' :
                  '❌ Poor'}
               </div>
-              {performanceStatus.warnings && performanceStatus.warnings.length > 0 && (
+              {performanceStatus.warnings && Array.isArray(performanceStatus.warnings) && performanceStatus.warnings.length > 0 && (
                 <div className="text-xs text-orange-600">
                   {performanceStatus.warnings.slice(0, 2).map((warning, index) => (
                     <div key={index}>• {warning}</div>

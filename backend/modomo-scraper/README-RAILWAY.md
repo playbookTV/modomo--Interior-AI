@@ -2,6 +2,19 @@
 
 Deploy the Modomo Dataset Scraping service to Railway with Supabase database and Cloudflare R2 storage.
 
+## 🆕 Celery Background Tasks Implementation
+
+This service now includes **Celery distributed task queue** for scalable background processing:
+
+- **✅ Distributed AI Processing**: YOLO detection, SAM2 segmentation, embeddings
+- **✅ Scalable Scraping**: Houzz data collection with concurrent workers  
+- **✅ Color Analysis Pipeline**: Bulk color extraction and processing
+- **✅ Real-time Monitoring**: Flower web interface + comprehensive API endpoints
+- **✅ Auto-retry & Recovery**: Robust error handling with exponential backoff
+- **✅ Queue Management**: Specialized queues for different workload types
+
+📖 **See [CELERY-DEPLOYMENT-GUIDE.md](./CELERY-DEPLOYMENT-GUIDE.md)** for complete setup instructions.
+
 ## 🚀 OPTIMIZED DEPLOYMENT (Fast ~5-7 minutes)
 
 This deployment uses Railway Volumes to persist AI models, reducing deployment time from 23+ minutes to under 7 minutes.

@@ -1,0 +1,95 @@
+# Docker Compose for Celery workers and monitoring
+version: '3.8'
+
+services:
+  # Celery Worker for general tasks
+  celery-worker:
+    build: .
+    command: celery -A celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - .:/app
+      - ./cache_volume:/app/cache_volume
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery Worker for AI-intensive tasks (with GPU if available)
+  celery-ai-worker:
+    build: .
+    command: celery -A celery_app worker --loglevel=info --concurrency=1 -Q ai_processing,detection
+    volumes:
+      - .:/app
+      - ./cache_volume:/app/cache_volume
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # Uncomment for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Celery Worker for scraping tasks
+  celery-scraping-worker:
+    build: .
+    command: celery -A celery_app worker --loglevel=info --concurrency=1 -Q scraping,import
+    volumes:
+      - .:/app
+      - ./cache_volume:/app/cache_volume
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery Beat for scheduled tasks
+  celery-beat:
+    build: .
+    command: celery -A celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Flower - Celery monitoring
+  flower:
+    build: .
+    command: celery -A celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Redis (broker and result backend)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:

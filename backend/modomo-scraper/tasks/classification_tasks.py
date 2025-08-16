@@ -302,3 +302,217 @@ def detect_primary_category_from_text(text: str) -> Optional[str]:
             return best_category
     
     return None
+
+
+# Celery task functions
+from celery_app import celery_app
+from tasks import BaseTask, database_service
+
+@celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 60})
+def run_scene_reclassification_job(self, job_id: str, limit: int, force_reclassify: bool = False):
+    """Background job to reclassify existing scenes"""
+    processed = 0
+    total_scenes = 0
+    reclassified = 0
+    
+    try:
+        logger.info(f"🔄 Starting scene reclassification job {job_id} for {limit} scenes")
+        BaseTask.update_job_progress(job_id, "running", 0, limit, "Getting scenes for reclassification...")
+        
+        # Get scenes that need reclassification
+        scenes_data = get_scenes_for_reclassification(limit, force_reclassify)
+        total_scenes = len(scenes_data)
+        
+        if total_scenes == 0:
+            logger.info(f"No scenes found for reclassification")
+            return BaseTask.complete_job(job_id, 0, 0, {"message": "No scenes need reclassification"})
+        
+        logger.info(f"Found {total_scenes} scenes for reclassification")
+        BaseTask.update_job_progress(job_id, "running", 0, total_scenes, f"Reclassifying {total_scenes} scenes...")
+        
+        # Process each scene
+        for i, scene in enumerate(scenes_data):
+            try:
+                scene_id = scene["scene_id"]
+                image_url = scene["image_url"]
+                
+                # Get current classification metadata
+                current_metadata = scene.get("metadata", {})
+                old_classification = {
+                    "image_type": current_metadata.get("image_type", "unknown"),
+                    "is_primary_object": current_metadata.get("is_primary_object", False),
+                    "primary_category": current_metadata.get("primary_category")
+                }
+                
+                # Run classification
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                new_classification = loop.run_until_complete(classify_image_type(image_url))
+                loop.close()
+                
+                # Check if classification changed
+                classification_changed = (
+                    new_classification["image_type"] != old_classification["image_type"] or
+                    new_classification.get("is_primary_object", False) != old_classification["is_primary_object"] or
+                    new_classification.get("primary_category") != old_classification["primary_category"]
+                )
+                
+                if classification_changed or force_reclassify:
+                    # Update scene with new classification
+                    updated_metadata = current_metadata.copy()
+                    updated_metadata.update({
+                        "image_type": new_classification["image_type"],
+                        "is_primary_object": new_classification.get("is_primary_object", False),
+                        "primary_category": new_classification.get("primary_category"),
+                        "classification_confidence": new_classification.get("confidence", 0.0),
+                        "classification_reason": new_classification.get("reason", "unknown"),
+                        "reclassified_at": datetime.utcnow().isoformat(),
+                        "previous_classification": old_classification
+                    })
+                    
+                    # Update in database
+                    success = update_scene_classification(scene_id, updated_metadata)
+                    
+                    if success:
+                        reclassified += 1
+                        logger.debug(f"✅ Reclassified scene {scene_id}: {old_classification['image_type']} → {new_classification['image_type']}")
+                    else:
+                        logger.warning(f"⚠️ Failed to update classification for scene {scene_id}")
+                else:
+                    logger.debug(f"🔄 No classification change for scene {scene_id}")
+                
+                processed += 1
+                
+                # Update progress
+                progress_message = f"Processed {processed}/{total_scenes} scenes ({reclassified} reclassified)"
+                BaseTask.update_job_progress(job_id, "running", processed, total_scenes, progress_message)
+                BaseTask.update_celery_progress(processed, total_scenes, progress_message)
+                
+                # Log progress every 25 scenes
+                if (i + 1) % 25 == 0:
+                    logger.info(f"Reclassification progress: {processed}/{total_scenes} scenes, {reclassified} reclassified")
+                    
+            except Exception as scene_error:
+                logger.error(f"Error reclassifying scene {scene.get('scene_id', 'unknown')}: {scene_error}")
+                processed += 1
+                continue
+        
+        # Complete the job
+        result = {
+            "processed": processed,
+            "total": total_scenes,
+            "reclassified": reclassified,
+            "unchanged": processed - reclassified,
+            "reclassification_rate": f"{(reclassified/processed)*100:.1f}%" if processed > 0 else "0%",
+            "force_reclassify": force_reclassify,
+            "message": f"Scene reclassification completed: {reclassified}/{processed} scenes reclassified"
+        }
+        
+        logger.info(f"🔄 Scene reclassification job {job_id} completed: {reclassified}/{processed} reclassified")
+        return BaseTask.complete_job(job_id, processed, total_scenes, result)
+        
+    except Exception as e:
+        logger.error(f"❌ Scene reclassification job {job_id} failed: {e}")
+        BaseTask.handle_task_error(job_id, e, processed, total_scenes or limit)
+        raise
+
+@celery_app.task(bind=True)
+def classify_single_scene(self, scene_id: str, image_url: str):
+    """Classify a single scene image"""
+    try:
+        logger.info(f"🔍 Classifying scene {scene_id}")
+        
+        # Run classification
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        classification = loop.run_until_complete(classify_image_type(image_url))
+        loop.close()
+        
+        # Update scene in database
+        metadata = {
+            "image_type": classification["image_type"],
+            "is_primary_object": classification.get("is_primary_object", False),
+            "primary_category": classification.get("primary_category"),
+            "classification_confidence": classification.get("confidence", 0.0),
+            "classification_reason": classification.get("reason", "unknown"),
+            "classified_at": datetime.utcnow().isoformat()
+        }
+        
+        success = update_scene_classification(scene_id, metadata)
+        
+        if success:
+            logger.info(f"✅ Successfully classified scene {scene_id}: {classification['image_type']}")
+            return {
+                "success": True,
+                "scene_id": scene_id,
+                "classification": classification
+            }
+        else:
+            logger.error(f"❌ Failed to update classification for scene {scene_id}")
+            return {
+                "success": False,
+                "scene_id": scene_id,
+                "error": "Database update failed"
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Single scene classification failed for {scene_id}: {e}")
+        return {
+            "success": False,
+            "scene_id": scene_id,
+            "error": str(e)
+        }
+
+def get_scenes_for_reclassification(limit: int, force_reclassify: bool = False) -> List[Dict[str, Any]]:
+    """Get scenes that need reclassification"""
+    try:
+        if not database_service:
+            return []
+        
+        query = database_service.supabase.table("scenes").select(
+            "scene_id, image_url, metadata"
+        )
+        
+        if not force_reclassify:
+            # Only get scenes without classification metadata
+            query = query.is_("metadata->image_type", "null")
+        
+        result = query.order("created_at", desc=True).limit(limit).execute()
+        
+        return result.data or []
+        
+    except Exception as e:
+        logger.error(f"Failed to get scenes for reclassification: {e}")
+        return []
+
+def update_scene_classification(scene_id: str, metadata: Dict[str, Any]) -> bool:
+    """Update scene with classification metadata"""
+    try:
+        if not database_service:
+            return False
+        
+        # Get current metadata and merge
+        current_scene = database_service.supabase.table("scenes").select(
+            "metadata"
+        ).eq("scene_id", scene_id).execute()
+        
+        current_metadata = {}
+        if current_scene.data:
+            current_metadata = current_scene.data[0].get("metadata", {})
+        
+        # Merge metadata
+        updated_metadata = current_metadata.copy()
+        updated_metadata.update(metadata)
+        
+        # Update scene
+        result = database_service.supabase.table("scenes").update({
+            "metadata": updated_metadata
+        }).eq("scene_id", scene_id).execute()
+        
+        return bool(result.data)
+        
+    except Exception as e:
+        logger.error(f"Failed to update scene classification for {scene_id}: {e}")
+        return False

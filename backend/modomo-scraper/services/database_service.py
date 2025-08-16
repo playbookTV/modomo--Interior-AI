@@ -28,15 +28,29 @@ class DatabaseService:
     ) -> bool:
         """Create a new job record in the database"""
         try:
+            # Map job types to valid database values
+            valid_job_types = {
+                "processing": "detection",
+                "scene_reclassification": "detection", 
+                "object_detection": "detection",
+                "scene_scraping": "scenes",
+                "product_scraping": "products",
+                "import": "detection",  # HuggingFace dataset imports
+                "color_extraction": "detection",
+                "classification": "detection"
+            }
+            
+            # Use mapped job type or fallback to 'detection'
+            db_job_type = valid_job_types.get(job_type, "detection")
+            
             job_data = {
                 "job_id": job_id,
-                "job_type": job_type,
+                "job_type": db_job_type,
                 "status": "pending",
                 "total_items": total_items,
                 "processed_items": 0,
                 "progress": 0,
                 "parameters": parameters,
-                "created_at": datetime.utcnow().isoformat(),
                 "started_at": datetime.utcnow().isoformat()
             }
             
@@ -291,3 +305,19 @@ class DatabaseService:
                 "status": "error",
                 "message": f"Supabase test failed: {str(e)}"
             }
+    
+    async def update_scene(self, scene_id: str, update_data: Dict[str, Any]) -> bool:
+        """Update a scene record in the database"""
+        try:
+            result = self.supabase.table("scenes").update(update_data).eq("scene_id", scene_id).execute()
+            
+            if result.data:
+                logger.info(f"✅ Updated scene {scene_id}")
+                return True
+            else:
+                logger.warning(f"⚠️ No scene found with ID {scene_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to update scene {scene_id}: {e}")
+            return False
