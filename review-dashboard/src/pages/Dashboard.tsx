@@ -41,8 +41,8 @@ export function Dashboard() {
     queryKey: ['active-jobs'],
     queryFn: getActiveJobs,
     refetchInterval: 10000, // Refresh every 10 seconds (slower)
-    retry: 0, // Don't retry for now
-    enabled: false, // Temporarily disable to test dashboard
+    retry: 1, // Retry once on failure
+    enabled: true, // Re-enable active jobs monitoring
     onError: (error) => {
       console.warn('Active jobs fetch failed:', error.message)
     }

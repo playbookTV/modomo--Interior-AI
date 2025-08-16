@@ -28,17 +28,21 @@ export function SceneDetail() {
       setLocalScene(initialScene)
       
       // Debug: Log SAM2 segmentation status
-      console.log('Scene loaded - SAM2 Analysis:')
-      console.log(`Total objects: ${initialScene.objects.length}`)
-      console.log(`Objects with SAM2 masks: ${initialScene.objects.filter(obj => obj.mask_url).length}`)
-      console.log(`Bounding box fallbacks: ${initialScene.objects.filter(obj => !obj.mask_url).length}`)
-      
-      initialScene.objects.forEach((obj, idx) => {
-        console.log(`Object ${idx + 1}: ${obj.category} - ${obj.mask_url ? '✅ SAM2 mask' : '⚠️ Bbox only'}`)
-        if (obj.mask_url) {
-          console.log(`  Mask URL: ${obj.mask_url}`)
-        }
-      })
+      if (initialScene.objects && Array.isArray(initialScene.objects)) {
+        console.log('Scene loaded - SAM2 Analysis:')
+        console.log(`Total objects: ${initialScene.objects.length}`)
+        console.log(`Objects with SAM2 masks: ${initialScene.objects.filter(obj => obj.mask_url).length}`)
+        console.log(`Bounding box fallbacks: ${initialScene.objects.filter(obj => !obj.mask_url).length}`)
+        
+        initialScene.objects.forEach((obj, idx) => {
+          console.log(`Object ${idx + 1}: ${obj.category} - ${obj.mask_url ? '✅ SAM2 mask' : '⚠️ Bbox only'}`)
+          if (obj.mask_url) {
+            console.log(`  Mask URL: ${obj.mask_url}`)
+          }
+        })
+      } else {
+        console.log('Scene loaded but no objects array found')
+      }
     }
   }, [initialScene])
 
@@ -154,6 +158,7 @@ export function SceneDetail() {
   }
 
   const handleNext = () => {
+    if (!localScene?.objects?.length) return
     setCurrentObjectIndex((idx) => Math.min(idx + 1, (localScene.objects.length - 1)))
   }
 
@@ -161,7 +166,50 @@ export function SceneDetail() {
     setCurrentObjectIndex((idx) => Math.max(idx - 1, 0))
   }
 
-  const isLastObject = currentObjectIndex >= localScene.objects.length - 1
+  const isLastObject = !localScene?.objects?.length || currentObjectIndex >= localScene.objects.length - 1
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  if (isError || !localScene) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-12">
+          <div className="text-red-500 mb-4">Scene not found</div>
+          <Link to="/review" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            Back to Review Queue
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (!localScene.objects || localScene.objects.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Scene Detail</h1>
+            <p className="text-gray-600">Scene ID: {localScene.scene_id}</p>
+          </div>
+          <div>
+            <Link to="/review" className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">
+              Back to Queue
+            </Link>
+          </div>
+        </div>
+        <div className="text-center py-12">
+          <div className="text-gray-500 mb-4">No objects detected in this scene</div>
+          <p className="text-sm text-gray-600">This scene may need to be processed for object detection.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

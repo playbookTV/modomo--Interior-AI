@@ -201,7 +201,7 @@ class PerformanceMonitor:
             if gpu_usage_avg is not None:
                 logger.info(f"🎮 GPU: {gpu_usage_avg:.1f}%, VRAM: {gpu_memory_peak:.1f}GB")
     
-    def get_performance_warning(self) -> Optional[str]:
+    def get_performance_warning(self) -> List[str]:
         """Get performance warning based on system specs"""
         specs = self.system_specs
         warnings = []
@@ -220,7 +220,7 @@ class PerformanceMonitor:
         elif specs.gpu_memory and specs.gpu_memory < 6:
             warnings.append("⚠️ Limited GPU memory may require sequential processing")
         
-        return " | ".join(warnings) if warnings else None
+        return warnings
     
     def get_time_estimates(self, operations: List[str]) -> Dict[str, float]:
         """Get estimated processing times for operations"""

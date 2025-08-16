@@ -1995,12 +1995,12 @@ async def get_scene_maps(
 ):
     """Get available maps for a specific scene"""
     try:
-        # Get scene from database
-        scenes = await db_service.get_scenes(limit=1, offset=0, status=None, scene_id=scene_id)
-        if not scenes.get("scenes"):
+        # Get scene from database using direct query
+        result = db_service.supabase.table("scenes").select("*").eq("scene_id", scene_id).execute()
+        if not result.data:
             raise HTTPException(status_code=404, detail="Scene not found")
         
-        scene = scenes["scenes"][0]
+        scene = result.data[0]
         
         # Extract map information
         maps_info = {
