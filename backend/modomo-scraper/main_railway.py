@@ -114,31 +114,40 @@ def get_app():
     ai_available = check_ai_dependencies()
     print(f"🤖 AI dependencies available: {ai_available}")
     
-    # Always try to load full AI mode first
+    # Try to load refactored architecture first, then fallback to original
     try:
-        print("🚀 Loading full AI mode...")
-        from main_full import app
-        print("✅ Full AI mode loaded successfully")
+        print("🚀 Loading refactored architecture...")
+        from main_refactored import app
+        print("✅ Refactored architecture loaded successfully")
         return app
     except Exception as e:
-        print(f"❌ Failed to load full AI mode: {e}")
+        print(f"❌ Failed to load refactored architecture: {e}")
         import traceback
         traceback.print_exc()
         
-        # If AI dependencies are missing, this is a build error
-        if not ai_available:
-            print("💥 CRITICAL: AI dependencies missing in production build!")
-            print("🔧 Check Dockerfile and requirements-ai-stable.txt")
-            # Still try basic mode but warn loudly
-            
-        print("🔄 Falling back to basic mode (NOT RECOMMENDED FOR PRODUCTION)")
+        # Fallback to original main_full
         try:
-            from main_basic import app
-            print("⚠️ Basic mode loaded - LIMITED FUNCTIONALITY")
+            print("🔄 Falling back to original full AI mode...")
+            from main_full import app
+            print("✅ Original full AI mode loaded successfully")
             return app
-        except Exception as basic_error:
-            print(f"💥 FATAL: Even basic mode failed: {basic_error}")
-            raise
+        except Exception as full_error:
+            print(f"❌ Failed to load original full AI mode: {full_error}")
+            
+            # If AI dependencies are missing, this is a build error
+            if not ai_available:
+                print("💥 CRITICAL: AI dependencies missing in production build!")
+                print("🔧 Check Dockerfile and requirements-ai-stable.txt")
+                # Still try basic mode but warn loudly
+                
+            print("🔄 Final fallback to basic mode (NOT RECOMMENDED FOR PRODUCTION)")
+            try:
+                from main_basic import app
+                print("⚠️ Basic mode loaded - LIMITED FUNCTIONALITY")
+                return app
+            except Exception as basic_error:
+                print(f"💥 FATAL: Even basic mode failed: {basic_error}")
+                raise
 
 # Get the app instance
 app = get_app()

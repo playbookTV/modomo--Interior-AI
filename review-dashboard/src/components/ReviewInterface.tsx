@@ -1,9 +1,9 @@
-// import React, { useState, useCallback } from 'react'
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { Check, X, Edit3, Package, Loader2, Eye, EyeOff, Target } from 'lucide-react'
 import { DetectedObject, Scene, Product } from '../types'
 import { searchProducts } from '../api/client'
+import { MapOverlays, MapControls, SceneMapData } from './MapOverlays'
 
 // Inline UI components to avoid missing module imports
 
@@ -415,6 +415,76 @@ export function ReviewInterface({
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false)
   const [imageDimensions, setImageDimensions] = useState({ width: 1920, height: 1080 })
   
+  // Map state management
+  const [sceneMapData, setSceneMapData] = useState<SceneMapData | undefined>(undefined)
+  const [mapVisibility, setMapVisibility] = useState({ depth: false, edge: false })
+  const [isGeneratingMaps, setIsGeneratingMaps] = useState(false)
+  
+  // API base URL
+  const API_BASE = 'https://ovalay-recruitment-production.up.railway.app'
+  
+  // Fetch scene map data
+  const fetchSceneMapData = useCallback(async (sceneId: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/scenes/${sceneId}/maps`)
+      if (response.ok) {
+        const mapData = await response.json()
+        setSceneMapData(mapData)
+        console.log('Scene map data loaded:', mapData)
+      } else {
+        console.warn('Failed to fetch scene map data:', response.status)
+      }
+    } catch (error) {
+      console.error('Error fetching scene map data:', error)
+    }
+  }, [API_BASE])
+  
+  // Generate maps for scene
+  const handleMapGenerate = useCallback(async (sceneId: string, mapTypes: string[]) => {
+    try {
+      setIsGeneratingMaps(true)
+      console.log('Generating maps for scene:', sceneId, mapTypes)
+      
+      const response = await fetch(`${API_BASE}/generate-maps/${sceneId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ map_types: mapTypes })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        console.log('Map generation result:', result)
+        
+        // Refresh scene map data
+        await fetchSceneMapData(sceneId)
+        
+        // Show generated maps
+        if (mapTypes.includes('depth')) setMapVisibility(prev => ({ ...prev, depth: true }))
+        if (mapTypes.includes('edge')) setMapVisibility(prev => ({ ...prev, edge: true }))
+      } else {
+        console.error('Map generation failed:', response.status)
+      }
+    } catch (error) {
+      console.error('Error generating maps:', error)
+    } finally {
+      setIsGeneratingMaps(false)
+    }
+  }, [API_BASE, fetchSceneMapData])
+  
+  // Handle map visibility changes
+  const handleMapVisibilityChange = useCallback((mapType: string, visible: boolean) => {
+    setMapVisibility(prev => ({ ...prev, [mapType]: visible }))
+  }, [])
+  
+  // Load scene map data when scene changes
+  useEffect(() => {
+    if (scene?.scene_id) {
+      fetchSceneMapData(scene.scene_id)
+    }
+  }, [scene?.scene_id, fetchSceneMapData])
+  
   const currentObject = scene.objects[currentObjectIndex]
   
   // Handle image load to get actual dimensions
@@ -497,6 +567,39 @@ export function ReviewInterface({
           Bounding Boxes
         </button>
         
+        {/* Map visibility controls */}
+        {(sceneMapData?.maps_available?.depth || sceneMapData?.maps_available?.edge) && (
+          <>
+            {sceneMapData?.maps_available?.depth && (
+              <button
+                onClick={() => handleMapVisibilityChange('depth', !mapVisibility.depth)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  mapVisibility.depth 
+                    ? 'bg-purple-500 text-white shadow-md' 
+                    : 'bg-white text-gray-600 border border-gray-300 hover:border-purple-400'
+                }`}
+              >
+                {mapVisibility.depth ? <Eye size={14} /> : <EyeOff size={14} />}
+                Depth Map
+              </button>
+            )}
+            
+            {sceneMapData?.maps_available?.edge && (
+              <button
+                onClick={() => handleMapVisibilityChange('edge', !mapVisibility.edge)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  mapVisibility.edge 
+                    ? 'bg-orange-500 text-white shadow-md' 
+                    : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-400'
+                }`}
+              >
+                {mapVisibility.edge ? <Eye size={14} /> : <EyeOff size={14} />}
+                Edge Map
+              </button>
+            )}
+          </>
+        )}
+        
         <div className="ml-auto">
           <SegmentationQualityBadge object={currentObject} />
         </div>
@@ -518,6 +621,23 @@ export function ReviewInterface({
           imageHeight={imageDimensions.height}
           showMasks={showMasks}
           showBoundingBoxes={showBoundingBoxes}
+        />
+        
+        {/* Map Overlays */}
+        <MapOverlays
+          sceneId={scene.scene_id}
+          sceneMapData={sceneMapData}
+          mapVisibility={mapVisibility}
+        />
+        
+        {/* Map Controls */}
+        <MapControls
+          sceneId={scene.scene_id}
+          onMapGenerate={handleMapGenerate}
+          isGenerating={isGeneratingMaps}
+          sceneMapData={sceneMapData}
+          onVisibilityChange={handleMapVisibilityChange}
+          mapVisibility={mapVisibility}
         />
       </div>
       

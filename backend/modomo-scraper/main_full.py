@@ -1134,10 +1134,12 @@ async def init_database():
 
 @app.get("/jobs/active")
 async def get_active_jobs():
-    """Get currently active jobs"""
+    """Get currently active jobs from Redis and Database"""
     all_jobs = []
+    redis_jobs = []
+    db_jobs = []
     
-    # Try to get jobs from Redis first (preferred for active job tracking)
+    # Get jobs from Redis (real-time active tracking)
     if redis_client:
         try:
             job_keys = redis_client.keys("job:*")
@@ -1148,20 +1150,52 @@ async def get_active_jobs():
                     job_status = {key.decode() if isinstance(key, bytes) else key: 
                                  value.decode() if isinstance(value, bytes) else value 
                                  for key, value in job_data.items()}
-                    all_jobs.append(job_status)
+                    
+                    # Ensure job_id is included from Redis key if missing
+                    if "job_id" not in job_status:
+                        job_status["job_id"] = job_key.decode().replace("job:", "")
+                    
+                    redis_jobs.append(job_status)
+                    logger.debug(f"Found active Redis job: {job_status.get('job_id')}")
         except Exception as e:
             logger.warning(f"Failed to get active jobs from Redis: {e}")
     
-    # Fallback to database if available
-    if db_pool and not all_jobs:
+    # Also get active jobs from database (persistent tracking)
+    if supabase:
         try:
-            async with db_pool.acquire() as conn:
-                jobs = await conn.fetch("SELECT * FROM scraping_jobs WHERE status = 'running'")
-                all_jobs = [dict(job) for job in jobs]
+            result = supabase.table("scraping_jobs").select("*").in_("status", ["pending", "running", "processing"]).order("created_at", desc=True).execute()
+            
+            if result.data:
+                for job in result.data:
+                    # Convert to match Redis format for consistency
+                    db_job = {
+                        "job_id": job["job_id"],
+                        "status": job["status"],
+                        "progress": str(job.get("progress", 0)),
+                        "total": str(job.get("total_items", 0)),
+                        "processed": str(job.get("processed_items", 0)),
+                        "message": f"{job.get('job_type', 'processing').title()} job",
+                        "created_at": job.get("created_at", ""),
+                        "updated_at": job.get("updated_at", ""),
+                        "job_type": job.get("job_type", "processing"),
+                        "error_message": job.get("error_message"),
+                        "parameters": job.get("parameters", {})
+                    }
+                    db_jobs.append(db_job)
+                    logger.debug(f"Found active DB job: {job['job_id']}")
         except Exception as e:
-            logger.error(f"Database query failed: {e}")
+            logger.error(f"Failed to get active jobs from database: {e}")
     
-    # Return consistent array format that frontend expects
+    # Combine and deduplicate (Redis takes precedence for active jobs)
+    redis_job_ids = {job["job_id"] for job in redis_jobs}
+    all_jobs.extend(redis_jobs)
+    
+    # Add DB jobs that aren't already in Redis
+    for db_job in db_jobs:
+        if db_job["job_id"] not in redis_job_ids:
+            all_jobs.append(db_job)
+    
+    logger.info(f"Returning {len(all_jobs)} active jobs ({len(redis_jobs)} from Redis, {len([j for j in db_jobs if j['job_id'] not in redis_job_ids])} additional from DB)")
     return all_jobs
 
 # Debug endpoint for color dependencies
@@ -1272,6 +1306,92 @@ async def get_recent_job_errors():
         logger.error(f"Failed to get recent errors: {e}")
         return {"errors": [], "error": str(e)}
 
+@app.get("/jobs/history")
+async def get_job_history(
+    limit: int = Query(50, description="Number of historical jobs to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    status: str = Query(None, description="Filter by status: completed, failed, all"),
+    job_type: str = Query(None, description="Filter by job type: scenes, import, processing, detection")
+):
+    """Get historical job data from database"""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        query = supabase.table("scraping_jobs").select("*")
+        
+        # Apply filters
+        if status and status != "all":
+            query = query.eq("status", status)
+        elif not status:
+            # Default: show completed and failed jobs (historical)
+            query = query.in_("status", ["completed", "failed"])
+            
+        if job_type:
+            query = query.eq("job_type", job_type)
+        
+        # Order by most recent first and apply pagination
+        result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        
+        # Get total count for pagination info
+        count_query = supabase.table("scraping_jobs").select("job_id", count="exact")
+        if status and status != "all":
+            count_query = count_query.eq("status", status)
+        elif not status:
+            count_query = count_query.in_("status", ["completed", "failed"])
+        if job_type:
+            count_query = count_query.eq("job_type", job_type)
+            
+        count_result = count_query.execute()
+        total_jobs = count_result.count if count_result.count else 0
+        
+        # Convert database format to match frontend expectations
+        historical_jobs = []
+        for job in result.data:
+            job_data = {
+                "job_id": job["job_id"],
+                "status": job["status"],
+                "job_type": job.get("job_type", "processing"),
+                "message": f"{job.get('job_type', 'processing').title()} job",
+                "progress": job.get("progress", 0),
+                "total": job.get("total_items", 0),
+                "processed": job.get("processed_items", 0),
+                "created_at": job.get("created_at"),
+                "updated_at": job.get("updated_at"),
+                "started_at": job.get("started_at"),
+                "completed_at": job.get("completed_at"),
+                "error_message": job.get("error_message"),
+                "parameters": job.get("parameters", {}),
+                # Add computed fields
+                "dataset": job.get("parameters", {}).get("dataset"),
+                "features": []  # Could be computed from parameters if needed
+            }
+            
+            # Add duration if job is completed
+            if job.get("completed_at") and job.get("started_at"):
+                try:
+                    from datetime import datetime
+                    start = datetime.fromisoformat(job["started_at"].replace('Z', '+00:00'))
+                    end = datetime.fromisoformat(job["completed_at"].replace('Z', '+00:00'))
+                    duration_seconds = (end - start).total_seconds()
+                    job_data["duration_seconds"] = duration_seconds
+                except:
+                    pass
+            
+            historical_jobs.append(job_data)
+        
+        return {
+            "jobs": historical_jobs,
+            "total": total_jobs,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + limit < total_jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get job history: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve job history: {str(e)}")
+
 # Color processing endpoints  
 @app.post("/process/colors")
 async def process_existing_objects_colors(
@@ -1280,6 +1400,17 @@ async def process_existing_objects_colors(
 ):
     """Process existing objects with color extraction"""
     job_id = str(uuid.uuid4())
+    
+    # Create job in database for persistent tracking
+    await create_job_in_database(
+        job_id=job_id,
+        job_type="processing",
+        total_items=limit,
+        parameters={
+            "limit": limit,
+            "operation": "color_extraction"
+        }
+    )
     
     # Start background task
     background_tasks.add_task(run_color_processing_job, job_id, limit)
@@ -1304,6 +1435,17 @@ async def start_scene_scraping(
     
     job_id = str(uuid.uuid4())
     
+    # Create job in database for persistent tracking
+    await create_job_in_database(
+        job_id=job_id,
+        job_type="scenes",
+        total_items=limit,
+        parameters={
+            "limit": limit,
+            "room_types": room_types or []
+        }
+    )
+    
     # Start background scraping + AI processing task
     background_tasks.add_task(run_full_scraping_pipeline, job_id, limit, room_types)
     
@@ -1327,6 +1469,19 @@ async def import_huggingface_dataset(
 ):
     """Import any HuggingFace dataset and process with AI"""
     job_id = str(uuid.uuid4())
+    
+    # Create job in database for persistent tracking
+    await create_job_in_database(
+        job_id=job_id,
+        job_type="import",
+        total_items=limit,
+        parameters={
+            "dataset": dataset,
+            "offset": offset,
+            "limit": limit,
+            "include_detection": include_detection
+        }
+    )
     
     # Start background import + AI processing task
     background_tasks.add_task(run_dataset_import_pipeline, job_id, dataset, offset, limit, include_detection)
@@ -1373,6 +1528,18 @@ async def reclassify_existing_scenes(
     Useful for improving dataset quality after classification improvements.
     """
     job_id = str(uuid.uuid4())
+    
+    # Create job in database for persistent tracking
+    await create_job_in_database(
+        job_id=job_id,
+        job_type="processing",
+        total_items=limit,
+        parameters={
+            "limit": limit,
+            "force_redetection": force_redetection,
+            "operation": "scene_reclassification"
+        }
+    )
     
     background_tasks.add_task(run_scene_reclassification_job, job_id, limit, force_redetection)
     
@@ -2175,14 +2342,75 @@ def analyze_detections_for_classification(detections: List[Dict]) -> Dict[str, A
             "reason": "mixed_detection_scene"
         }
 
+# Job Database Persistence Functions
+async def create_job_in_database(job_id: str, job_type: str, total_items: int = 0, parameters: dict = None):
+    """Create a job record in the database for persistent tracking"""
+    if not supabase:
+        logger.warning("Supabase not available - job will only be tracked in Redis")
+        return None
+    
+    try:
+        job_data = {
+            "job_id": job_id,
+            "job_type": job_type,
+            "status": "pending",
+            "progress": 0,
+            "total_items": total_items,
+            "processed_items": 0,
+            "parameters": parameters or {},
+            "created_at": datetime.utcnow().isoformat(),
+            "started_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("scraping_jobs").insert(job_data).execute()
+        logger.info(f"✅ Created job {job_id} in database")
+        return result.data[0] if result.data else None
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to create job {job_id} in database: {e}")
+        return None
+
+async def update_job_in_database(job_id: str, status: str = None, progress: int = None, 
+                                processed_items: int = None, error_message: str = None):
+    """Update job progress in database"""
+    if not supabase:
+        return
+    
+    try:
+        update_data = {
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        if status:
+            update_data["status"] = status
+            if status in ["completed", "failed"]:
+                update_data["completed_at"] = datetime.utcnow().isoformat()
+        
+        if progress is not None:
+            update_data["progress"] = progress
+            
+        if processed_items is not None:
+            update_data["processed_items"] = processed_items
+            
+        if error_message:
+            update_data["error_message"] = error_message
+        
+        result = supabase.table("scraping_jobs").update(update_data).eq("job_id", job_id).execute()
+        logger.debug(f"Updated job {job_id} in database: {update_data}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to update job {job_id} in database: {e}")
+
 async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool):
     """Import dataset from HuggingFace and process with AI pipeline"""
     def update_job_progress(status: str, processed: int, total: int, message: str = ""):
-        """Update job progress in Redis"""
+        """Update job progress in Redis and Database"""
+        progress = int((processed / total * 100)) if total > 0 else 0
+        
+        # Update Redis (real-time tracking)
         if redis_client:
             try:
                 job_key = f"job:{job_id}"
-                progress = int((processed / total * 100)) if total > 0 else 0
                 redis_client.hset(job_key, mapping={
                     "status": status,
                     "progress": str(progress),
@@ -2193,7 +2421,19 @@ async def run_dataset_import_pipeline(job_id: str, dataset: str, offset: int, li
                 })
                 redis_client.expire(job_key, 3600)  # Expire after 1 hour
             except Exception as e:
-                logger.warning(f"Failed to update job progress: {e}")
+                logger.warning(f"Failed to update job progress in Redis: {e}")
+        
+        # Update Database (persistent tracking)
+        try:
+            import asyncio
+            asyncio.create_task(update_job_in_database(
+                job_id=job_id,
+                status=status,
+                progress=progress,
+                processed_items=processed
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to update job progress in database: {e}")
     
     try:
         logger.info(f"🚀 Starting dataset import job {job_id} - {limit} images from dataset '{dataset}' (offset: {offset})")

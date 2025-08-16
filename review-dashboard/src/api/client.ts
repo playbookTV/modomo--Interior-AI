@@ -199,6 +199,22 @@ export const getRecentErrors = async (): Promise<{errors: ScrapingJob[], total_e
   return response.data
 }
 
+export const getJobHistory = async (params: {
+  limit?: number
+  offset?: number
+  status?: string
+  job_type?: string
+} = {}): Promise<{
+  jobs: ScrapingJob[]
+  total: number
+  limit: number
+  offset: number
+  has_more: boolean
+}> => {
+  const response = await apiClient.get('/jobs/history', { params })
+  return response.data
+}
+
 export const getAllExports = async (): Promise<DatasetExportJob[]> => {
   const response = await apiClient.get('/exports')
   return response.data

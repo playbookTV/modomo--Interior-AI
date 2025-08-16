@@ -26,3 +26,10 @@ CLIP_CACHE_DIR = "/app/models/clip"
 # Railway-specific optimizations
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
+
+# R2 Storage Configuration (set via Railway dashboard)
+# R2_BUCKET_NAME = "modomo-dataset"
+# R2_ENDPOINT_URL = "https://your-account-id.r2.cloudflarestorage.com"
+# R2_ACCESS_KEY_ID = "your-r2-access-key"
+# R2_SECRET_ACCESS_KEY = "your-r2-secret-key"
+# R2_REGION = "auto"

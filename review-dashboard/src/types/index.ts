@@ -107,9 +107,13 @@ export interface ScrapingJob {
   message: string
   created_at?: string
   updated_at?: string
+  started_at?: string
+  completed_at?: string
   error_message?: string
   dataset?: string
   features?: string[]
+  parameters?: Record<string, any>
+  duration_seconds?: number
 }
 
 export interface DatasetExportJob {

@@ -100,6 +100,13 @@ click
 ujson
 orjson
 
+# === DEPTH & MAP GENERATION ===
+# Depth Anything V2 - State-of-the-art monocular depth estimation (pip-installable fork with pyproject.toml)
+git+https://github.com/badayvedat/Depth-Anything-V2.git@badayvedat-patch-1
+
+# === PERFORMANCE MONITORING ===
+psutil
+
 # === ADDITIONAL AI UTILITIES ===
 # For advanced image processing
 albumentations

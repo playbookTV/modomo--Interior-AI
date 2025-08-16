@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { 
   Play, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, 
   Pause, RefreshCw, Filter, Search, Calendar, Activity,
-  Database, Sparkles, Eye, Download, Settings, Zap, Palette
+  Database, Sparkles, Eye, Download, Settings, Zap, Palette,
+  Mountain, Layers
 } from 'lucide-react'
+import { getActiveJobs, getRecentErrors, getJobHistory } from '../api/client'
 
 interface Job {
   job_id: string
@@ -23,33 +25,50 @@ interface Job {
 
 // API functions
 async function fetchActiveJobs(): Promise<Job[]> {
-  const response = await fetch('https://ovalay-recruitment-production.up.railway.app/jobs/active')
-  if (!response.ok) throw new Error('Failed to fetch active jobs')
-  return response.json()
+  return await getActiveJobs()
 }
 
-async function fetchJobStatus(jobId: string): Promise<Job> {
-  const response = await fetch(`https://ovalay-recruitment-production.up.railway.app/jobs/${jobId}/status`)
-  if (!response.ok) throw new Error('Failed to fetch job status')
-  return response.json()
+// Map generation API functions
+const API_BASE = 'https://ovalay-recruitment-production.up.railway.app'
+
+async function generateMapsBatch(limit: number = 10, mapTypes: string[] = ['depth', 'edge'], forceRegenerate: boolean = false) {
+  const response = await fetch(`${API_BASE}/generate-maps/batch?limit=${limit}&map_types=${mapTypes.join(',')}&force_regenerate=${forceRegenerate}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Map generation failed: ${response.status}`)
+  }
+  
+  return await response.json()
+}
+
+async function fetchPerformanceStatus() {
+  const response = await fetch(`${API_BASE}/performance/status`)
+  if (!response.ok) {
+    throw new Error(`Performance status fetch failed: ${response.status}`)
+  }
+  return await response.json()
 }
 
 async function fetchRecentErrors(): Promise<{errors: Job[], total_error_jobs: number}> {
-  const response = await fetch('https://ovalay-recruitment-production.up.railway.app/jobs/errors/recent')
-  if (!response.ok) throw new Error('Failed to fetch recent errors')
-  return response.json()
+  return await getRecentErrors()
 }
 
 async function fetchAllJobs(): Promise<Job[]> {
   try {
-    // Fetch both active jobs and recent errors, then combine them
-    const [activeJobs, errorData] = await Promise.all([
+    // Fetch active jobs, recent errors, and historical jobs in parallel
+    const [activeJobs, errorData, historyData] = await Promise.all([
       fetchActiveJobs().catch(() => []),
-      fetchRecentErrors().catch(() => ({errors: [], total_error_jobs: 0}))
+      fetchRecentErrors().catch(() => ({errors: [], total_error_jobs: 0})),
+      getJobHistory({ limit: 20, status: 'all' }).catch(() => ({jobs: [], total: 0, limit: 20, offset: 0, has_more: false}))
     ])
     
-    // Combine and deduplicate by job_id
-    const allJobs = [...activeJobs, ...errorData.errors]
+    // Combine all job sources and deduplicate by job_id
+    const allJobs = [...activeJobs, ...errorData.errors, ...historyData.jobs]
     const uniqueJobs = allJobs.filter((job, index, array) => 
       array.findIndex(j => j.job_id === job.job_id) === index
     )
@@ -62,6 +81,7 @@ async function fetchAllJobs(): Promise<Job[]> {
     })
   } catch (error) {
     console.error('Failed to fetch jobs:', error)
+    // Return empty array as fallback
     return []
   }
 }
@@ -71,6 +91,14 @@ export function Jobs() {
   const [searchTerm, setSearchTerm] = useState('')
   const [refreshInterval, setRefreshInterval] = useState(5000) // 5 seconds default
   const [isAutoRefresh, setIsAutoRefresh] = useState(true)
+  
+  // Map generation state
+  const [isGeneratingMaps, setIsGeneratingMaps] = useState(false)
+  const [mapGenerationResult, setMapGenerationResult] = useState<any>(null)
+  const [mapGenerationError, setMapGenerationError] = useState<string | null>(null)
+  const [mapBatchLimit, setMapBatchLimit] = useState(10)
+  const [selectedMapTypes, setSelectedMapTypes] = useState(['depth', 'edge'])
+  const [forceRegenerate, setForceRegenerate] = useState(false)
 
   // Fetch all jobs with real-time updates
   const { data: jobs = [], isLoading, error, refetch } = useQuery({
@@ -78,6 +106,17 @@ export function Jobs() {
     queryFn: fetchAllJobs,
     refetchInterval: isAutoRefresh ? refreshInterval : false,
     refetchIntervalInBackground: true
+  })
+
+  // Fetch performance status
+  const { data: performanceStatus, isLoading: perfLoading } = useQuery({
+    queryKey: ['performance-status'],
+    queryFn: fetchPerformanceStatus,
+    refetchInterval: isAutoRefresh ? 10000 : false, // Update every 10 seconds
+    retry: 1, // Only retry once for performance data
+    onError: (error) => {
+      console.warn('Performance status fetch failed:', error)
+    }
   })
 
   // Filter jobs based on status and search
@@ -115,14 +154,52 @@ export function Jobs() {
     }
   }
 
-  const getJobTypeIcon = (message: string) => {
+  // Map generation handler
+  const handleMapGeneration = async () => {
+    try {
+      setIsGeneratingMaps(true)
+      setMapGenerationError(null)
+      setMapGenerationResult(null)
+      
+      console.log('Starting batch map generation:', { 
+        limit: mapBatchLimit, 
+        mapTypes: selectedMapTypes, 
+        forceRegenerate 
+      })
+      
+      const result = await generateMapsBatch(mapBatchLimit, selectedMapTypes, forceRegenerate)
+      setMapGenerationResult(result)
+      
+      // Refresh jobs list to show the new generation job
+      refetch()
+      
+    } catch (error) {
+      console.error('Map generation failed:', error)
+      setMapGenerationError(error instanceof Error ? error.message : 'Unknown error occurred')
+    } finally {
+      setIsGeneratingMaps(false)
+    }
+  }
+
+  const getJobTypeIcon = (message: string, jobType?: string) => {
     const msgLower = message.toLowerCase()
-    if (msgLower.includes('dataset') || msgLower.includes('import')) return <Database className="h-5 w-5" />
-    if (msgLower.includes('detection') || msgLower.includes('ai')) return <Sparkles className="h-5 w-5" />
-    if (msgLower.includes('scraping') || msgLower.includes('scrape')) return <Eye className="h-5 w-5" />
+    const typeStr = (jobType || '').toLowerCase()
+    
+    if (typeStr === 'import' || msgLower.includes('dataset') || msgLower.includes('import')) return <Database className="h-5 w-5" />
+    if (typeStr === 'scenes' || msgLower.includes('scraping') || msgLower.includes('scrape')) return <Eye className="h-5 w-5" />
+    if (typeStr === 'detection' || msgLower.includes('detection') || msgLower.includes('ai')) return <Sparkles className="h-5 w-5" />
+    if (typeStr === 'maps' || msgLower.includes('map') || msgLower.includes('depth') || msgLower.includes('edge')) return <Mountain className="h-5 w-5" />
     if (msgLower.includes('color')) return <Palette className="h-5 w-5" />
     if (msgLower.includes('export')) return <Download className="h-5 w-5" />
     return <Activity className="h-5 w-5" />
+  }
+
+  const formatDuration = (seconds: number | undefined): string => {
+    if (!seconds) return ''
+    
+    if (seconds < 60) return `${Math.round(seconds)}s`
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+    return `${Math.round(seconds / 3600)}h`
   }
 
   // Summary statistics
@@ -228,6 +305,293 @@ export function Jobs() {
         </div>
       </div>
 
+      {/* Map Generation Section */}
+      <div className="bg-gradient-to-r from-purple-50 to-orange-50 rounded-xl p-6 border border-purple-200">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-purple-100 rounded-lg">
+            <Mountain className="h-6 w-6 text-purple-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Batch Map Generation</h2>
+            <p className="text-gray-600">Generate depth and edge maps for multiple scenes</p>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          {/* Batch Limit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Scenes to Process
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={mapBatchLimit}
+              onChange={(e) => setMapBatchLimit(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              disabled={isGeneratingMaps}
+            />
+          </div>
+          
+          {/* Map Types */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Map Types
+            </label>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={selectedMapTypes.includes('depth')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedMapTypes([...selectedMapTypes, 'depth'])
+                    } else {
+                      setSelectedMapTypes(selectedMapTypes.filter(t => t !== 'depth'))
+                    }
+                  }}
+                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  disabled={isGeneratingMaps}
+                />
+                <span className="ml-2 text-sm text-gray-700">Depth Maps</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={selectedMapTypes.includes('edge')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedMapTypes([...selectedMapTypes, 'edge'])
+                    } else {
+                      setSelectedMapTypes(selectedMapTypes.filter(t => t !== 'edge'))
+                    }
+                  }}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  disabled={isGeneratingMaps}
+                />
+                <span className="ml-2 text-sm text-gray-700">Edge Maps</span>
+              </label>
+            </div>
+          </div>
+          
+          {/* Force Regenerate */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Options
+            </label>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={forceRegenerate}
+                onChange={(e) => setForceRegenerate(e.target.checked)}
+                className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                disabled={isGeneratingMaps}
+              />
+              <span className="ml-2 text-sm text-gray-700">Force Regenerate</span>
+            </label>
+            <p className="text-xs text-gray-500 mt-1">Regenerate existing maps</p>
+          </div>
+          
+          {/* Generate Button */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Action
+            </label>
+            <button
+              onClick={handleMapGeneration}
+              disabled={isGeneratingMaps || selectedMapTypes.length === 0}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isGeneratingMaps ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Layers className="h-4 w-4" />
+                  Generate Maps
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+        
+        {/* Results */}
+        {mapGenerationResult && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start">
+              <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-green-800 mb-1">Generation Complete</h4>
+                <p className="text-sm text-green-700">{mapGenerationResult.message}</p>
+                <div className="mt-2 text-xs text-green-600">
+                  Processed: {mapGenerationResult.processed} | 
+                  Successful: {mapGenerationResult.successful} | 
+                  Failed: {mapGenerationResult.failed}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {mapGenerationError && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start">
+              <XCircle className="h-5 w-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-red-800 mb-1">Generation Failed</h4>
+                <p className="text-sm text-red-700">{mapGenerationError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* System Performance Status */}
+      {performanceStatus && (
+        <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-6 border border-blue-200">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Activity className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">System Performance</h2>
+              <p className="text-gray-600">Real-time AI processing capabilities and recommendations</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            {/* System Specs */}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">System Specs</h3>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">CPU Cores:</span>
+                  <span className="font-medium">{performanceStatus.system_specs?.cpu_count || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Memory:</span>
+                  <span className="font-medium">
+                    {performanceStatus.system_specs?.memory_available_gb?.toFixed(1) || 'N/A'}GB / 
+                    {performanceStatus.system_specs?.memory_total_gb?.toFixed(1) || 'N/A'}GB
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">GPU:</span>
+                  <span className={`font-medium ${performanceStatus.system_specs?.gpu_available ? 'text-green-600' : 'text-orange-600'}`}>
+                    {performanceStatus.system_specs?.gpu_available ? '✅ Available' : '❌ CPU Only'}
+                  </span>
+                </div>
+                {performanceStatus.system_specs?.gpu_name && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    {performanceStatus.system_specs.gpu_name}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Performance Status */}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Performance Status</h3>
+              <div className={`text-lg font-bold mb-2 ${
+                performanceStatus.performance_status === 'optimal' ? 'text-green-600' :
+                performanceStatus.performance_status === 'good' ? 'text-blue-600' :
+                performanceStatus.performance_status === 'limited' ? 'text-orange-600' :
+                'text-red-600'
+              }`}>
+                {performanceStatus.performance_status === 'optimal' ? '🚀 Optimal' :
+                 performanceStatus.performance_status === 'good' ? '✅ Good' :
+                 performanceStatus.performance_status === 'limited' ? '⚠️ Limited' :
+                 '❌ Poor'}
+              </div>
+              {performanceStatus.warnings && performanceStatus.warnings.length > 0 && (
+                <div className="text-xs text-orange-600">
+                  {performanceStatus.warnings.slice(0, 2).map((warning, index) => (
+                    <div key={index}>• {warning}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Estimated Times */}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Estimated Times</h3>
+              <div className="space-y-1 text-sm">
+                {performanceStatus.estimated_times?.depth_per_image && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Depth Map:</span>
+                    <span className="font-medium">{performanceStatus.estimated_times.depth_per_image}s</span>
+                  </div>
+                )}
+                {performanceStatus.estimated_times?.edge_per_image && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Edge Map:</span>
+                    <span className="font-medium">{performanceStatus.estimated_times.edge_per_image}s</span>
+                  </div>
+                )}
+                {performanceStatus.estimated_times?.detection_per_image && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Detection:</span>
+                    <span className="font-medium">{performanceStatus.estimated_times.detection_per_image}s</span>
+                  </div>
+                )}
+                {performanceStatus.estimated_times?.segmentation_per_object && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Segmentation:</span>
+                    <span className="font-medium">{performanceStatus.estimated_times.segmentation_per_object}s</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Latest Operation */}
+            <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Latest Operation</h3>
+              {performanceStatus.latest_operation ? (
+                <div className="space-y-1 text-sm">
+                  <div className="font-medium text-gray-900">{performanceStatus.latest_operation.name}</div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Duration:</span>
+                    <span className="font-medium">{performanceStatus.latest_operation.duration}s</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">CPU Usage:</span>
+                    <span className="font-medium">{performanceStatus.latest_operation.cpu_usage}%</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">No recent operations</div>
+              )}
+            </div>
+          </div>
+          
+          {/* Performance Suggestions */}
+          {performanceStatus.suggestions && performanceStatus.suggestions.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-blue-800 mb-2">💡 Performance Suggestions</h4>
+              <div className="space-y-1">
+                {performanceStatus.suggestions.slice(0, 3).map((suggestion, index) => (
+                  <div key={index} className="text-sm text-blue-700">• {suggestion}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {performanceStatus === undefined && !perfLoading && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertTriangle className="h-5 w-5 text-yellow-600 mr-2" />
+            <span className="text-sm text-yellow-800">
+              Performance monitoring unavailable - AI service may be offline
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
         <div className="flex-1 relative">
@@ -278,7 +642,7 @@ export function Jobs() {
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-start space-x-3">
                   <div className="flex-shrink-0 mt-1">
-                    {getJobTypeIcon(job.message)}
+                    {getJobTypeIcon(job.message, job.job_type)}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
@@ -310,6 +674,19 @@ export function Jobs() {
                         <div className="flex items-center space-x-1">
                           <Clock className="h-4 w-4" />
                           <span>Updated: {new Date(job.updated_at).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {job.duration_seconds && (
+                        <div className="flex items-center space-x-1">
+                          <Activity className="h-4 w-4" />
+                          <span>Duration: {formatDuration(job.duration_seconds)}</span>
+                        </div>
+                      )}
+                      {job.job_type && (
+                        <div className="flex items-center space-x-1">
+                          <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full">
+                            {job.job_type}
+                          </span>
                         </div>
                       )}
                     </div>
