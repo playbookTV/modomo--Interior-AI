@@ -19,6 +19,169 @@ from services.r2_uploader import create_r2_uploader
 
 logger = structlog.get_logger(__name__)
 
+
+# Helper functions (moved to top for proper scope)
+def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optional[str]:
+    """
+    Synchronous version of extract_image_url_from_item with PIL image handling
+    """
+    try:
+        # Check if item has a PIL image
+        if "image" in item and PIL_AVAILABLE:
+            pil_image = item["image"]
+            if hasattr(pil_image, "save"):  # Check if it's a PIL Image
+                logger.info("Found PIL Image in dataset item, uploading to R2...")
+                # Upload PIL image to R2 synchronously
+                image_url = upload_pil_image_to_r2_sync(pil_image, r2_uploader)
+                if image_url:
+                    logger.info(f"Successfully uploaded PIL image to R2: {image_url}")
+                    return image_url
+                else:
+                    logger.warning("Failed to upload PIL image to R2")
+        
+        # Fallback to URL extraction (existing logic)
+        if "image_url" in item:
+            return item["image_url"]
+        elif "url" in item:
+            return item["url"]
+        elif "image" in item and isinstance(item["image"], str):
+            return item["image"]
+        
+        logger.warning(f"No image URL or PIL Image found in item: {list(item.keys())}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error extracting image from dataset item: {e}")
+        return None
+
+
+def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
+    """
+    Synchronous PIL image upload to R2 storage
+    """
+    if not PIL_AVAILABLE:
+        logger.warning("PIL not available - cannot upload PIL image")
+        return None
+        
+    try:
+        import io
+        import uuid
+        
+        # Convert PIL image to bytes
+        img_buffer = io.BytesIO()
+        
+        # Handle different image formats
+        image_format = "JPEG"
+        if hasattr(pil_image, 'format') and pil_image.format:
+            image_format = pil_image.format
+        elif pil_image.mode == "RGBA":
+            image_format = "PNG"
+        
+        # Save to buffer
+        if image_format == "JPEG" and pil_image.mode in ("RGBA", "LA", "P"):
+            # Convert to RGB for JPEG
+            pil_image = pil_image.convert("RGB")
+        
+        pil_image.save(img_buffer, format=image_format, quality=85)
+        img_buffer.seek(0)
+        
+        # Generate unique filename
+        file_extension = "jpg" if image_format == "JPEG" else image_format.lower()
+        filename = f"hf_import_{uuid.uuid4().hex}.{file_extension}"
+        
+        # Upload to R2
+        from services.r2_uploader import upload_to_r2_sync
+        image_url = upload_to_r2_sync(
+            img_buffer.getvalue(),
+            filename,
+            f"image/{file_extension}",
+            r2_uploader
+        )
+        
+        return image_url
+        
+    except Exception as e:
+        logger.error(f"Error uploading PIL image to R2: {e}")
+        return None
+
+
+def extract_metadata_from_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract metadata from HuggingFace dataset item"""
+    metadata = {}
+    
+    # Common metadata fields
+    for field in ["caption", "description", "title", "tags", "category", "room_type", "style"]:
+        if field in item:
+            metadata[field] = item[field]
+    
+    # Additional fields
+    if "width" in item and "height" in item:
+        metadata["dimensions"] = {"width": item["width"], "height": item["height"]}
+    
+    return metadata
+
+
+def load_huggingface_dataset(dataset_name: str, offset: int, limit: int):
+    """Load HuggingFace dataset with offset and limit"""
+    try:
+        from datasets import load_dataset
+        
+        logger.info(f"Loading HuggingFace dataset: {dataset_name}")
+        dataset = load_dataset(dataset_name, streaming=True)
+        
+        # Get the train split or first available split
+        if "train" in dataset:
+            data = dataset["train"]
+        else:
+            data = dataset[list(dataset.keys())[0]]
+        
+        # Apply offset and limit
+        items = []
+        current_idx = 0
+        
+        for item in data:
+            if current_idx < offset:
+                current_idx += 1
+                continue
+            
+            if len(items) >= limit:
+                break
+                
+            items.append(item)
+            current_idx += 1
+        
+        logger.info(f"Loaded {len(items)} items from dataset {dataset_name}")
+        return items
+        
+    except Exception as e:
+        logger.error(f"Error loading HuggingFace dataset {dataset_name}: {e}")
+        return None
+
+
+def store_scene_in_database(scene_data: Dict[str, Any]) -> Optional[str]:
+    """Store scene in database"""
+    try:
+        # Use database service to store scene
+        scene_id = database_service.create_scene(scene_data)
+        return scene_id
+    except Exception as e:
+        logger.error(f"Error storing scene in database: {e}")
+        return None
+
+
+def get_houzz_crawler():
+    """Get Houzz crawler instance"""
+    # Placeholder - would import actual crawler
+    logger.warning("Houzz crawler not implemented yet")
+    return None
+
+
+def scrape_houzz_scenes(crawler, limit: int, room_types: Optional[List[str]] = None):
+    """Scrape scenes from Houzz"""
+    # Placeholder - would use actual crawler
+    logger.warning("Houzz scraping not implemented yet") 
+    return []
+
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 2, 'countdown': 300})
 def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[str]] = None):
     """Scrape scenes from Houzz with full AI processing"""
@@ -203,166 +366,3 @@ def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, lim
         logger.error(f"❌ Import job {job_id} failed: {e}")
         BaseTask.handle_task_error(job_id, e, imported, limit)
         raise
-
-
-# Helper functions
-def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optional[str]:
-    """
-    Synchronous version of extract_image_url_from_item with PIL image handling
-    """
-    try:
-        # Check if item has a PIL image
-        if "image" in item and PIL_AVAILABLE:
-            pil_image = item["image"]
-            if hasattr(pil_image, "save"):  # Check if it's a PIL Image
-                logger.info("Found PIL Image in dataset item, uploading to R2...")
-                # Upload PIL image to R2 synchronously
-                image_url = upload_pil_image_to_r2_sync(pil_image, r2_uploader)
-                if image_url:
-                    logger.info(f"Successfully uploaded PIL image to R2: {image_url}")
-                    return image_url
-                else:
-                    logger.warning("Failed to upload PIL image to R2")
-        
-        # Fallback to URL extraction (existing logic)
-        if "image_url" in item:
-            return item["image_url"]
-        elif "url" in item:
-            return item["url"]
-        elif "image" in item and isinstance(item["image"], str):
-            return item["image"]
-        
-        logger.warning(f"No image URL or PIL Image found in item: {list(item.keys())}")
-        return None
-        
-    except Exception as e:
-        logger.error(f"Error extracting image from dataset item: {e}")
-        return None
-
-
-def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
-    """
-    Synchronous PIL image upload to R2 storage
-    """
-    if not PIL_AVAILABLE:
-        logger.warning("PIL not available - cannot upload PIL image")
-        return None
-        
-    try:
-        import io
-        import uuid
-        
-        # Convert PIL image to bytes
-        img_buffer = io.BytesIO()
-        
-        # Handle different image formats
-        image_format = "JPEG"
-        if hasattr(pil_image, 'format') and pil_image.format:
-            image_format = pil_image.format
-        elif pil_image.mode == "RGBA":
-            image_format = "PNG"
-        
-        # Save to buffer
-        if image_format == "JPEG" and pil_image.mode in ("RGBA", "LA", "P"):
-            # Convert to RGB for JPEG
-            pil_image = pil_image.convert("RGB")
-        
-        pil_image.save(img_buffer, format=image_format, quality=85)
-        img_buffer.seek(0)
-        
-        # Generate unique filename
-        file_extension = "jpg" if image_format == "JPEG" else image_format.lower()
-        filename = f"hf_import_{uuid.uuid4().hex}.{file_extension}"
-        
-        # Upload to R2
-        from services.r2_uploader import upload_to_r2_sync
-        image_url = upload_to_r2_sync(
-            img_buffer.getvalue(),
-            filename,
-            f"image/{file_extension}",
-            r2_uploader
-        )
-        
-        return image_url
-        
-    except Exception as e:
-        logger.error(f"Error uploading PIL image to R2: {e}")
-        return None
-
-
-def extract_metadata_from_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract metadata from HuggingFace dataset item"""
-    metadata = {}
-    
-    # Common metadata fields
-    for field in ["caption", "description", "title", "tags", "category", "room_type", "style"]:
-        if field in item:
-            metadata[field] = item[field]
-    
-    # Additional fields
-    if "width" in item and "height" in item:
-        metadata["dimensions"] = {"width": item["width"], "height": item["height"]}
-    
-    return metadata
-
-
-def load_huggingface_dataset(dataset_name: str, offset: int, limit: int):
-    """Load HuggingFace dataset with offset and limit"""
-    try:
-        from datasets import load_dataset
-        
-        logger.info(f"Loading HuggingFace dataset: {dataset_name}")
-        dataset = load_dataset(dataset_name, streaming=True)
-        
-        # Get the train split or first available split
-        if "train" in dataset:
-            data = dataset["train"]
-        else:
-            data = dataset[list(dataset.keys())[0]]
-        
-        # Apply offset and limit
-        items = []
-        current_idx = 0
-        
-        for item in data:
-            if current_idx < offset:
-                current_idx += 1
-                continue
-            
-            if len(items) >= limit:
-                break
-                
-            items.append(item)
-            current_idx += 1
-        
-        logger.info(f"Loaded {len(items)} items from dataset {dataset_name}")
-        return items
-        
-    except Exception as e:
-        logger.error(f"Error loading HuggingFace dataset {dataset_name}: {e}")
-        return None
-
-
-def store_scene_in_database(scene_data: Dict[str, Any]) -> Optional[str]:
-    """Store scene in database"""
-    try:
-        # Use database service to store scene
-        scene_id = database_service.create_scene(scene_data)
-        return scene_id
-    except Exception as e:
-        logger.error(f"Error storing scene in database: {e}")
-        return None
-
-
-def get_houzz_crawler():
-    """Get Houzz crawler instance"""
-    # Placeholder - would import actual crawler
-    logger.warning("Houzz crawler not implemented yet")
-    return None
-
-
-def scrape_houzz_scenes(crawler, limit: int, room_types: Optional[List[str]] = None):
-    """Scrape scenes from Houzz"""
-    # Placeholder - would use actual crawler
-    logger.warning("Houzz scraping not implemented yet") 
-    return []
