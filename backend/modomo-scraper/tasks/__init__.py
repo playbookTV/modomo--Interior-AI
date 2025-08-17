@@ -7,6 +7,9 @@ from celery import current_task
 from celery.exceptions import Retry
 
 # Import services
+database_service = None
+job_service = None
+
 try:
     from supabase import create_client
     from config.settings import settings
@@ -15,25 +18,34 @@ try:
     
     # Initialize global services for tasks
     supabase_client = None
-    database_service = None
-    job_service = None
     
+    # Initialize Supabase with error handling
     if settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY:
-        supabase_client = create_client(
-            supabase_url=settings.SUPABASE_URL,
-            supabase_key=settings.SUPABASE_ANON_KEY
-        )
-        database_service = DatabaseService(supabase_client)
+        try:
+            supabase_client = create_client(
+                supabase_url=settings.SUPABASE_URL,
+                supabase_key=settings.SUPABASE_ANON_KEY
+            )
+            database_service = DatabaseService(supabase_client)
+            print(f"✅ Database service initialized successfully")
+        except Exception as db_error:
+            print(f"❌ Database service initialization failed: {db_error}")
+            database_service = None
+    else:
+        print(f"⚠️  Missing Supabase configuration - database service disabled")
     
+    # Initialize Redis/Job service
     try:
         import redis
         redis_client = redis.from_url(settings.REDIS_URL, socket_timeout=10)
         job_service = JobService(redis_client)
-    except:
+        print(f"✅ Job service initialized successfully")
+    except Exception as redis_error:
+        print(f"❌ Job service initialization failed: {redis_error}")
         job_service = JobService(None)
         
 except ImportError as e:
-    print(f"Warning: Service import failed in tasks: {e}")
+    print(f"❌ Critical service import failed in tasks: {e}")
     database_service = None
     job_service = None
 
@@ -65,19 +77,25 @@ class BaseTask:
             
             # Update database if available
             if database_service:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(
-                    database_service.update_job_progress(
-                        job_id=job_id,
-                        processed_items=processed,
-                        total_items=total,
-                        status=status,
-                        error_message=error_message
+                try:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(
+                        database_service.update_job_progress(
+                            job_id=job_id,
+                            processed_items=processed,
+                            total_items=total,
+                            status=status,
+                            error_message=error_message
+                        )
                     )
-                )
-                loop.close()
+                    loop.close()
+                    logger.debug(f"✅ Updated database for job {job_id}")
+                except Exception as db_error:
+                    logger.warning(f"⚠️  Database update failed for job {job_id}: {db_error}")
+            else:
+                logger.debug(f"⚠️  Database service not available for job {job_id}")
                 
         except Exception as e:
             logger.warning(f"Failed to update job progress for {job_id}: {e}")
