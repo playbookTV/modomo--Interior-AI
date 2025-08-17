@@ -1,0 +1,34 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "celery -A celery_app worker --loglevel=info --concurrency=2 -Q scraping,import,ai_processing,detection,color_processing,classification"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+# Railway Volume Configuration for Model Persistence (shared with main app)
+[[deploy.volumes]]
+mountPath = "/app/models"
+name = "modomo-ai-models"
+
+[env]
+# Worker-specific environment variables
+AI_MODE = "full"
+CLASSIFICATION_ENHANCED = "true"
+KEYWORD_SYSTEM_VERSION = "2.0"
+MODEL_CACHE_DIR = "/app/models"
+SAM2_CHECKPOINT_DIR = "/app/models/sam2"
+CLIP_CACHE_DIR = "/app/models/clip"
+
+# Celery-specific optimizations
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+CELERY_WORKER_CONCURRENCY = "2"
+CELERY_WORKER_MAX_TASKS_PER_CHILD = "100"
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = "2000000"
+
+# Database and Redis URLs (inherited from project environment)
+# REDIS_URL = "set_via_railway_dashboard"
+# SUPABASE_URL = "set_via_railway_dashboard" 
+# SUPABASE_ANON_KEY = "set_via_railway_dashboard"

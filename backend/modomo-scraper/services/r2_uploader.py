@@ -294,6 +294,42 @@ class MockR2Uploader:
         }
 
 
+# Synchronous helpers for Celery compatibility
+def upload_to_r2_sync(data: bytes, r2_key: str, content_type: str, r2_uploader) -> Optional[str]:
+    """
+    Synchronous wrapper for R2 upload that returns the public URL
+    Compatible with Celery tasks that can't use async
+    """
+    try:
+        if not r2_uploader.is_available:
+            logger.warning(f"🚀 [MOCK] Would upload {len(data)} bytes to R2: {r2_key}")
+            # Return mock URL for testing
+            return f"https://mock-r2-domain.com/{r2_uploader.bucket_name}/{r2_key}"
+        
+        # Use boto3 directly for sync upload
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
+        
+        logger.info(f"☁️ Uploading {len(data)} bytes to R2: {r2_key}")
+        
+        r2_uploader.s3_client.put_object(
+            Bucket=r2_uploader.bucket_name,
+            Key=r2_key,
+            Body=data,
+            **extra_args
+        )
+        
+        # Return public URL
+        public_url = r2_uploader.get_public_url(r2_key)
+        logger.info(f"✅ Successfully uploaded to R2: {public_url}")
+        return public_url
+        
+    except Exception as e:
+        logger.error(f"❌ Sync upload error: {e}")
+        return None
+
+
 # Factory function
 def create_r2_uploader() -> R2Uploader:
     """Create R2 uploader instance"""

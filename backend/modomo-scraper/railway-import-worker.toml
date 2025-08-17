@@ -1,0 +1,24 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "celery -A celery_app worker --loglevel=info --concurrency=1 -Q import,scraping"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[env]
+# Import worker specific settings
+AI_MODE = "basic"  # Import worker doesn't need full AI models initially
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
+# Celery worker optimizations for import tasks
+CELERY_WORKER_CONCURRENCY = "1"
+CELERY_WORKER_MAX_TASKS_PER_CHILD = "50"
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = "1000000"
+
+# Database and Redis URLs (inherited from project environment)
+# REDIS_URL = "set_via_railway_dashboard"
+# SUPABASE_URL = "set_via_railway_dashboard" 
+# SUPABASE_ANON_KEY = "set_via_railway_dashboard"
