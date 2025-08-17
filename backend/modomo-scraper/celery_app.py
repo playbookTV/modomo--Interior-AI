@@ -39,6 +39,10 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_disable_rate_limits=False,
     
+    # Memory optimization
+    worker_max_tasks_per_child=100,  # Restart worker after 100 tasks to prevent memory leaks
+    worker_max_memory_per_child=400000,  # Restart worker if memory exceeds 400MB
+    
     # Rate limiting
     task_annotations={
         "*": {"rate_limit": "10/s"},

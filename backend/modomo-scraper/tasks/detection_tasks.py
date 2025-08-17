@@ -18,8 +18,21 @@ def run_detection_pipeline(self, job_id: str, image_url: str, scene_id: str = No
         
         # Step 1: Initialize detection service
         detection_service = get_detection_service()
-        if not detection_service or not detection_service.is_available():
-            raise Exception("AI detection service not available")
+        if not detection_service:
+            logger.warning("AI detection service not available - skipping detection task")
+            return BaseTask.complete_job(job_id, 5, 5, {
+                "message": "AI detection skipped - service not available on this worker",
+                "skipped": True,
+                "detections": []
+            })
+        
+        if not detection_service.is_available():
+            logger.warning("AI detection service not ready - skipping detection task")
+            return BaseTask.complete_job(job_id, 5, 5, {
+                "message": "AI detection skipped - service not ready",
+                "skipped": True,
+                "detections": []
+            })
         
         BaseTask.update_job_progress(job_id, "running", 1, 5, "Running object detection...")
         BaseTask.update_celery_progress(1, 5, "Running object detection...")
@@ -81,8 +94,25 @@ def run_batch_detection(self, job_id: str, scene_ids: List[str]):
         BaseTask.update_job_progress(job_id, "running", 0, total_scenes, "Starting batch detection...")
         
         detection_service = get_detection_service()
-        if not detection_service or not detection_service.is_available():
-            raise Exception("AI detection service not available")
+        if not detection_service:
+            logger.warning("AI detection service not available - skipping batch detection")
+            return BaseTask.complete_job(job_id, total_scenes, total_scenes, {
+                "message": "Batch AI detection skipped - service not available on this worker",
+                "processed_scenes": 0,
+                "total_scenes": total_scenes,
+                "skipped": True,
+                "scene_results": []
+            })
+        
+        if not detection_service.is_available():
+            logger.warning("AI detection service not ready - skipping batch detection")
+            return BaseTask.complete_job(job_id, total_scenes, total_scenes, {
+                "message": "Batch AI detection skipped - service not ready",
+                "processed_scenes": 0,
+                "total_scenes": total_scenes,
+                "skipped": True,
+                "scene_results": []
+            })
         
         # Process each scene
         for i, scene_id in enumerate(scene_ids):
@@ -183,8 +213,23 @@ def reprocess_scene_objects(self, job_id: str, scene_id: str, force_redetection:
         
         # Run detection pipeline
         detection_service = get_detection_service()
-        if not detection_service or not detection_service.is_available():
-            raise Exception("AI detection service not available")
+        if not detection_service:
+            logger.warning("AI detection service not available - skipping reprocessing")
+            return BaseTask.complete_job(job_id, 3, 3, {
+                "message": "Scene reprocessing skipped - AI service not available on this worker",
+                "scene_id": scene_id,
+                "skipped": True,
+                "detected_objects": 0
+            })
+        
+        if not detection_service.is_available():
+            logger.warning("AI detection service not ready - skipping reprocessing")
+            return BaseTask.complete_job(job_id, 3, 3, {
+                "message": "Scene reprocessing skipped - AI service not ready",
+                "scene_id": scene_id,
+                "skipped": True,
+                "detected_objects": 0
+            })
         
         from config.taxonomy import MODOMO_TAXONOMY
         
@@ -223,7 +268,19 @@ def reprocess_scene_objects(self, job_id: str, scene_id: str, force_redetection:
 def get_detection_service():
     """Get initialized detection service"""
     try:
-        from services.detection_service import DetectionService
+        # Check if PyTorch is available
+        try:
+            import torch
+        except ImportError:
+            logger.warning("PyTorch not available - AI detection disabled in this worker")
+            return None
+        
+        # Check if detection service is available
+        try:
+            from services.detection_service import DetectionService
+        except ImportError:
+            logger.warning("Detection service not available - AI models not installed")
+            return None
         
         # Initialize AI models
         detector = None
@@ -232,7 +289,6 @@ def get_detection_service():
         color_extractor = None
         
         try:
-            import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
             
             # Initialize models
