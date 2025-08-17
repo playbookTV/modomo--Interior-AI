@@ -102,7 +102,33 @@ def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[st
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 180})
 def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, limit: int, include_detection: bool = True):
     """Import HuggingFace dataset with optional AI processing"""
-    return asyncio.run(import_huggingface_dataset_async(job_id, dataset, offset, limit, include_detection))
+    imported = 0
+    processed = 0
+    
+    try:
+        logger.info(f"📥 Starting HuggingFace import job {job_id}: {dataset} (offset: {offset}, limit: {limit})")
+        BaseTask.update_job_progress(job_id, "running", 0, limit, f"Connecting to HuggingFace dataset {dataset}...")
+        
+        # Initialize R2 uploader (synchronous)
+        from services.r2_uploader import create_r2_uploader
+        r2_uploader = create_r2_uploader()
+        
+        # Load dataset
+        dataset_data = load_huggingface_dataset(dataset, offset, limit)
+        if not dataset_data:
+            raise Exception(f"Failed to load HuggingFace dataset: {dataset}")
+        
+        total_items = len(dataset_data)
+        logger.info(f"Loaded {total_items} items from dataset {dataset}")
+        
+        BaseTask.update_job_progress(job_id, "running", 0, total_items, f"Processing {total_items} dataset items...")
+        
+        # Process each item
+        for i, item in enumerate(dataset_data):
+            try:
+                # Extract image URL and metadata (sync version with PIL handling)
+                image_url = extract_image_url_from_item_sync(item, r2_uploader)
+                metadata = extract_metadata_from_item(item)
 
 async def import_huggingface_dataset_async(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool = True):
     """Async implementation of HuggingFace dataset import"""
@@ -297,6 +323,64 @@ def load_huggingface_dataset(dataset: str, offset: int, limit: int) -> List[Dict
         logger.error(f"Failed to load HuggingFace dataset {dataset}: {e}")
         return []
 
+def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
+    """Upload PIL image to R2 storage and return public URL (sync version)"""
+    try:
+        import io
+        import uuid
+        from datetime import datetime
+        import asyncio
+        
+        # Convert PIL image to bytes
+        image_buffer = io.BytesIO()
+        
+        # Determine format - default to JPEG if not specified
+        image_format = pil_image.format if pil_image.format else 'JPEG'
+        
+        # Convert RGBA to RGB for JPEG compatibility
+        if image_format == 'JPEG' and pil_image.mode in ('RGBA', 'LA'):
+            # Create white background
+            rgb_image = Image.new('RGB', pil_image.size, (255, 255, 255))
+            if pil_image.mode == 'RGBA':
+                rgb_image.paste(pil_image, mask=pil_image.split()[-1])  # Use alpha channel as mask
+            else:
+                rgb_image.paste(pil_image)
+            pil_image = rgb_image
+        
+        # Save image to buffer
+        pil_image.save(image_buffer, format=image_format, quality=85)
+        image_bytes = image_buffer.getvalue()
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        file_extension = 'jpg' if image_format == 'JPEG' else image_format.lower()
+        r2_key = f"huggingface-imports/{timestamp}_{unique_id}.{file_extension}"
+        
+        # Set content type
+        content_type = f"image/{file_extension}"
+        
+        # Upload to R2 (run async function in sync context)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            success = loop.run_until_complete(r2_uploader.upload_bytes(image_bytes, r2_key, content_type))
+        finally:
+            loop.close()
+        
+        if success:
+            # Return R2 public URL
+            public_url = f"https://pub-d1ea07ac8a9a4b7093ae9e2b17c5b6ad.r2.dev/{r2_key}"
+            logger.info(f"✅ Uploaded PIL image to R2: {public_url}")
+            return public_url
+        else:
+            logger.error("❌ Failed to upload PIL image to R2")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Error uploading PIL image: {e}")
+        return None
+
 async def upload_pil_image_to_r2(pil_image, r2_uploader) -> Optional[str]:
     """Upload PIL image to R2 storage and return public URL"""
     try:
@@ -347,6 +431,31 @@ async def upload_pil_image_to_r2(pil_image, r2_uploader) -> Optional[str]:
             
     except Exception as e:
         logger.error(f"❌ Error uploading PIL image: {e}")
+        return None
+
+def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader=None) -> Optional[str]:
+    """Extract image URL from dataset item, uploading PIL images to R2 if needed (sync version)"""
+    try:
+        # Common field names for images in HF datasets
+        image_fields = ["image", "img", "image_url", "url", "src"]
+        
+        for field in image_fields:
+            if field in item:
+                value = item[field]
+                if isinstance(value, str) and (value.startswith("http") or value.startswith("https")):
+                    return value
+                elif hasattr(value, "save"):  # PIL Image object
+                    # Upload PIL image to R2 storage (sync version)
+                    if r2_uploader:
+                        return upload_pil_image_to_r2_sync(value, r2_uploader)
+                    else:
+                        logger.warning("PIL image found but no R2 uploader available")
+                        continue
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to extract image URL: {e}")
         return None
 
 async def extract_image_url_from_item(item: Dict[str, Any], r2_uploader=None) -> Optional[str]:
