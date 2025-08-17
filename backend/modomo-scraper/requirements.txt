@@ -22,6 +22,7 @@ beautifulsoup4>=4.12.0
 
 # HuggingFace datasets for import tasks
 datasets>=2.14.0
+Pillow>=9.0.0
 
 # Avoid problematic packages
 # playwright  # Too heavy for worker
