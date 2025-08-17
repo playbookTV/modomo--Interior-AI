@@ -20,6 +20,9 @@ celery[redis]>=5.3.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 
+# HuggingFace datasets for import tasks
+datasets>=2.14.0
+
 # Avoid problematic packages
 # playwright  # Too heavy for worker
 # asyncpg     # Not needed for worker
