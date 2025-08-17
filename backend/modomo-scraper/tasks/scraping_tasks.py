@@ -26,9 +26,15 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
     Synchronous version of extract_image_url_from_item with PIL image handling
     """
     try:
-        # Check if item has a PIL image
-        if "image" in item and PIL_AVAILABLE:
-            pil_image = item["image"]
+        # Check if item has a PIL image (try common field names)
+        pil_field = None
+        for field_name in ["image", "img", "picture", "photo"]:
+            if field_name in item and PIL_AVAILABLE:
+                pil_field = field_name
+                break
+        
+        if pil_field:
+            pil_image = item[pil_field]
             if hasattr(pil_image, "save"):  # Check if it's a PIL Image
                 logger.info("Found PIL Image in dataset item, uploading to R2...")
                 # Upload PIL image to R2 synchronously
@@ -46,6 +52,8 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
             return item["url"]
         elif "image" in item and isinstance(item["image"], str):
             return item["image"]
+        elif "img" in item and isinstance(item["img"], str):
+            return item["img"]
         
         logger.warning(f"No image URL or PIL Image found in item: {list(item.keys())}")
         return None
