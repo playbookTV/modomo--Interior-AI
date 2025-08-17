@@ -22,6 +22,22 @@ interface Toast {
   duration?: number
 }
 
+interface JobProgress {
+  status: string
+  progress: number
+  processed: number
+  total: number
+  message?: string
+  error_message?: string
+}
+
+interface ProcessedImagesResponse {
+  scenes: any[]
+  total: number
+  page: number
+  totalPages: number
+}
+
 const PRESET_DATASETS = [
   {
     name: 'Houzz Interior Design',
@@ -51,7 +67,7 @@ async function importDataset(params: {
   return response.json()
 }
 
-async function fetchJobStatus(jobId: string): Promise<any> {
+async function fetchJobStatus(jobId: string): Promise<JobProgress> {
   const response = await fetch(
     `https://ovalay-recruitment-production.up.railway.app/jobs/${jobId}/status`
   )
@@ -115,7 +131,7 @@ async function exportTrainingDataset(): Promise<any> {
   return response.json()
 }
 
-async function fetchAllProcessedImages(page = 1, limit = 20): Promise<{scenes: any[], total: number, page: number, totalPages: number}> {
+async function fetchAllProcessedImages(page = 1, limit = 20): Promise<ProcessedImagesResponse> {
   const offset = (page - 1) * limit
   const response = await fetch(
     `https://ovalay-recruitment-production.up.railway.app/scenes?limit=${limit}&offset=${offset}&include_objects=true`
@@ -143,7 +159,7 @@ export function DatasetImporter() {
   const [isMonitoring, setIsMonitoring] = useState(false)
   const [viewMode, setViewMode] = useState<'scenes' | 'objects'>('scenes')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [jobProgress, setJobProgress] = useState<any>(null)
+  const [jobProgress, setJobProgress] = useState<JobProgress | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const [galleryPage, setGalleryPage] = useState(1)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -210,44 +226,46 @@ export function DatasetImporter() {
     queryFn: () => fetchJobStatus(lastJob!.job_id),
     enabled: !!lastJob?.job_id && (lastJob?.status === 'running' || jobProgress?.status === 'processing'),
     refetchInterval: !!lastJob?.job_id && (lastJob?.status === 'running' || jobProgress?.status === 'processing') ? 2000 : false,
-    onSuccess: (data) => {
-      setJobProgress(data)
+    
+  })
+
+  // Handle job progress updates
+  useEffect(() => {
+    if (currentJobProgress) {
+      setJobProgress(currentJobProgress)
       // Stop monitoring when job is complete
-      if (data.status === 'completed') {
+      if (currentJobProgress.status === 'completed') {
         setIsMonitoring(true) // Keep monitoring dashboard stats for a bit
         addToast({
           type: 'success',
           title: 'Dataset Import Complete!',
-          message: `Successfully processed ${data.processed || 0} images from ${lastJob?.dataset}`,
+          message: `Successfully processed ${currentJobProgress.processed || 0} images from ${lastJob?.dataset}`,
           duration: 8000
         })
         // Auto-refresh dashboard stats
         refetchStats()
         refetchScenes()
         queryClient.invalidateQueries({ queryKey: ['category-stats'] })
-      } else if (data.status === 'failed' || data.status === 'error') {
+      } else if (currentJobProgress.status === 'failed' || currentJobProgress.status === 'error') {
         addToast({
           type: 'error',
           title: 'Dataset Import Failed',
-          message: data.error_message || data.message || 'Import failed. Check the error details below.',
+          message: currentJobProgress.error_message || currentJobProgress.message || 'Import failed. Check the error details below.',
           duration: 15000 // Show error longer
         })
         setIsMonitoring(false)
         // Refresh error list when a job fails
         refetchErrors()
       }
-    },
-    onError: (error) => {
-      console.warn('Job status fetch error:', error)
     }
-  })
+  }, [currentJobProgress, lastJob?.dataset, addToast, setIsMonitoring, refetchStats, refetchScenes, queryClient, refetchErrors])
 
   // Gallery data for processed images
   const { data: galleryData, isLoading: galleryLoading } = useQuery({
     queryKey: ['processed-images', galleryPage],
     queryFn: () => fetchAllProcessedImages(galleryPage, 20),
     enabled: showGallery,
-    keepPreviousData: true
+    placeholderData: (previousData) => previousData
   })
 
   const exportMutation = useMutation({
@@ -1023,7 +1041,7 @@ export function DatasetImporter() {
                   <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                   <span className="ml-2 text-slate-600">Loading gallery...</span>
                 </div>
-              ) : galleryData?.scenes.length === 0 ? (
+              ) : !galleryData || galleryData.scenes.length === 0 ? (
                 <div className="text-center py-12">
                   <ImageIcon className="h-16 w-16 text-slate-300 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-slate-900 mb-2">No processed images</h3>
