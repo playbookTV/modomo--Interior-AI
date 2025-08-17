@@ -59,6 +59,23 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
         return None
         
     except Exception as e:
+        logger.error(f"Error extracting image from dataset item: {e}")
+        return None
+
+
+def store_scene_in_database(scene_data: Dict[str, Any]) -> Optional[str]:
+    """Store scene in database"""
+    try:
+        # Check if database service is available
+        if database_service is None:
+            logger.warning("Database service not available - creating mock scene ID")
+            import uuid
+            return str(uuid.uuid4())
+        
+        # Use database service to store scene
+        scene_id = database_service.create_scene(scene_data)
+        return scene_id
+    except Exception as e:
         logger.error(f"Error storing scene in database: {e}")
         # Return a mock scene ID so the import doesn't fail completely
         import uuid
