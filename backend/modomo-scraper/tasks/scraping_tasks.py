@@ -3,10 +3,13 @@ Phase 3: Scraping and import Celery tasks
 """
 import structlog
 import uuid
+import asyncio
 from typing import Dict, Any, List, Optional
 from celery_app import celery_app
 from tasks import BaseTask, database_service
 from tasks.detection_tasks import run_detection_pipeline
+from PIL import Image
+from services.r2_uploader import create_r2_uploader
 
 logger = structlog.get_logger(__name__)
 
@@ -99,12 +102,19 @@ def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[st
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 180})
 def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, limit: int, include_detection: bool = True):
     """Import HuggingFace dataset with optional AI processing"""
+    return asyncio.run(import_huggingface_dataset_async(job_id, dataset, offset, limit, include_detection))
+
+async def import_huggingface_dataset_async(job_id: str, dataset: str, offset: int, limit: int, include_detection: bool = True):
+    """Async implementation of HuggingFace dataset import"""
     imported = 0
     processed = 0
     
     try:
         logger.info(f"📥 Starting HuggingFace import job {job_id}: {dataset} (offset: {offset}, limit: {limit})")
         BaseTask.update_job_progress(job_id, "running", 0, limit, f"Connecting to HuggingFace dataset {dataset}...")
+        
+        # Initialize R2 uploader
+        r2_uploader = create_r2_uploader()
         
         # Load dataset
         dataset_data = load_huggingface_dataset(dataset, offset, limit)
@@ -119,8 +129,8 @@ def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, lim
         # Process each item
         for i, item in enumerate(dataset_data):
             try:
-                # Extract image URL and metadata
-                image_url = extract_image_url_from_item(item)
+                # Extract image URL and metadata (now async with R2 uploader)
+                image_url = await extract_image_url_from_item(item, r2_uploader)
                 metadata = extract_metadata_from_item(item)
                 
                 if not image_url:
@@ -287,8 +297,60 @@ def load_huggingface_dataset(dataset: str, offset: int, limit: int) -> List[Dict
         logger.error(f"Failed to load HuggingFace dataset {dataset}: {e}")
         return []
 
-def extract_image_url_from_item(item: Dict[str, Any]) -> Optional[str]:
-    """Extract image URL from dataset item"""
+async def upload_pil_image_to_r2(pil_image, r2_uploader) -> Optional[str]:
+    """Upload PIL image to R2 storage and return public URL"""
+    try:
+        import io
+        import uuid
+        from datetime import datetime
+        
+        # Convert PIL image to bytes
+        image_buffer = io.BytesIO()
+        
+        # Determine format - default to JPEG if not specified
+        image_format = pil_image.format if pil_image.format else 'JPEG'
+        
+        # Convert RGBA to RGB for JPEG compatibility
+        if image_format == 'JPEG' and pil_image.mode in ('RGBA', 'LA'):
+            # Create white background
+            rgb_image = Image.new('RGB', pil_image.size, (255, 255, 255))
+            if pil_image.mode == 'RGBA':
+                rgb_image.paste(pil_image, mask=pil_image.split()[-1])  # Use alpha channel as mask
+            else:
+                rgb_image.paste(pil_image)
+            pil_image = rgb_image
+        
+        # Save image to buffer
+        pil_image.save(image_buffer, format=image_format, quality=85)
+        image_bytes = image_buffer.getvalue()
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        file_extension = 'jpg' if image_format == 'JPEG' else image_format.lower()
+        r2_key = f"huggingface-imports/{timestamp}_{unique_id}.{file_extension}"
+        
+        # Set content type
+        content_type = f"image/{file_extension}"
+        
+        # Upload to R2
+        success = await r2_uploader.upload_bytes(image_bytes, r2_key, content_type)
+        
+        if success:
+            # Return R2 public URL
+            public_url = f"https://pub-d1ea07ac8a9a4b7093ae9e2b17c5b6ad.r2.dev/{r2_key}"
+            logger.info(f"✅ Uploaded PIL image to R2: {public_url}")
+            return public_url
+        else:
+            logger.error("❌ Failed to upload PIL image to R2")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Error uploading PIL image: {e}")
+        return None
+
+async def extract_image_url_from_item(item: Dict[str, Any], r2_uploader=None) -> Optional[str]:
+    """Extract image URL from dataset item, uploading PIL images to R2 if needed"""
     try:
         # Common field names for images in HF datasets
         image_fields = ["image", "img", "image_url", "url", "src"]
@@ -298,10 +360,13 @@ def extract_image_url_from_item(item: Dict[str, Any]) -> Optional[str]:
                 value = item[field]
                 if isinstance(value, str) and (value.startswith("http") or value.startswith("https")):
                     return value
-                elif hasattr(value, "filename"):  # PIL Image object
-                    # For PIL images, we'd need to upload them somewhere
-                    # For now, skip these
-                    continue
+                elif hasattr(value, "save"):  # PIL Image object
+                    # Upload PIL image to R2 storage
+                    if r2_uploader:
+                        return await upload_pil_image_to_r2(value, r2_uploader)
+                    else:
+                        logger.warning("PIL image found but no R2 uploader available")
+                        continue
         
         return None
         
