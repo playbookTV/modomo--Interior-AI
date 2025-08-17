@@ -21,6 +21,83 @@ logger = structlog.get_logger(__name__)
 
 
 # Helper functions (moved to top for proper scope)
+
+def load_huggingface_dataset(dataset: str, offset: int, limit: int):
+    """Load HuggingFace dataset with pagination"""
+    try:
+        from datasets import load_dataset
+        logger.info(f"Loading HuggingFace dataset: {dataset}")
+        
+        # Load dataset
+        ds = load_dataset(dataset, split="train", streaming=True)
+        
+        # Apply offset and limit
+        dataset_slice = ds.skip(offset).take(limit)
+        
+        # Convert to list for processing
+        items = list(dataset_slice)
+        logger.info(f"Loaded {len(items)} items from {dataset} (offset: {offset}, limit: {limit})")
+        
+        return items
+        
+    except Exception as e:
+        logger.error(f"Failed to load HuggingFace dataset {dataset}: {e}")
+        return None
+
+
+def extract_metadata_from_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract metadata from dataset item"""
+    metadata = {}
+    
+    # Extract common metadata fields
+    for key, value in item.items():
+        if key not in ["image", "img", "picture", "photo"]:  # Skip image fields
+            # Convert complex types to strings
+            if isinstance(value, (list, dict)):
+                metadata[key] = str(value)
+            else:
+                metadata[key] = value
+    
+    return metadata
+
+
+def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
+    """Upload PIL image to R2 storage synchronously"""
+    try:
+        import io
+        import uuid
+        
+        # Convert PIL image to bytes
+        img_buffer = io.BytesIO()
+        
+        # Determine format (default to PNG for safety)
+        format = getattr(pil_image, 'format', 'PNG') or 'PNG'
+        if format.upper() not in ['JPEG', 'PNG', 'WEBP']:
+            format = 'PNG'
+        
+        pil_image.save(img_buffer, format=format)
+        img_bytes = img_buffer.getvalue()
+        
+        # Generate unique R2 key
+        file_ext = format.lower()
+        if file_ext == 'jpeg':
+            file_ext = 'jpg'
+        r2_key = f"training-data/hf-imports/{uuid.uuid4()}.{file_ext}"
+        
+        # Get content type
+        content_type = f"image/{file_ext}"
+        if file_ext == 'jpg':
+            content_type = "image/jpeg"
+        
+        # Upload using sync helper
+        from services.r2_uploader import upload_to_r2_sync
+        public_url = upload_to_r2_sync(img_bytes, r2_key, content_type, r2_uploader)
+        
+        return public_url
+        
+    except Exception as e:
+        logger.error(f"Failed to upload PIL image to R2: {e}")
+        return None
 def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optional[str]:
     """
     Synchronous version of extract_image_url_from_item with PIL image handling
