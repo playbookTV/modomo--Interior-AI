@@ -105,7 +105,7 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
     try:
         # Check if item has a PIL image (try common field names)
         pil_field = None
-        for field_name in ["image", "img", "picture", "photo"]:
+        for field_name in ["image", "img", "picture", "photo", "Images"]:
             if field_name in item and PIL_AVAILABLE:
                 pil_field = field_name
                 break
@@ -131,6 +131,8 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
             return item["image"]
         elif "img" in item and isinstance(item["img"], str):
             return item["img"]
+        elif "Images" in item and isinstance(item["Images"], str):
+            return item["Images"]
         
         logger.warning(f"No image URL or PIL Image found in item: {list(item.keys())}")
         return None
@@ -215,20 +217,20 @@ def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[st
                     # Run AI detection pipeline
                     detection_job_id = f"{job_id}_detection_{scene_id}"
                     
-                    # Run detection pipeline synchronously
+                    # Run detection pipeline asynchronously (no .get() call)
                     try:
-                        detection_result = run_detection_pipeline.apply(
+                        detection_task = run_detection_pipeline.apply_async(
                             args=[detection_job_id, scene_data["image_url"], scene_id]
-                        ).get()
+                        )
                         
-                        if detection_result and detection_result.get("stored_objects", 0) > 0:
-                            processed += 1
-                            logger.info(f"Successfully processed scene {scene_id} with {detection_result.get('total_detected', 0)} objects")
-                        else:
-                            logger.warning(f"No objects detected in scene {scene_id}")
-                            
+                        # Log that detection was queued but don't wait for result
+                        logger.info(f"🤖 Queued AI detection for scene {scene_id} (task: {detection_task.id})")
+                        
+                        # We can't wait for the result here, so we assume it will be processed
+                        # The detection task will handle its own success/failure logging
+                        
                     except Exception as detection_error:
-                        logger.error(f"AI detection failed for scene {scene_id}: {detection_error}")
+                        logger.error(f"AI detection failed for imported scene {scene_id}: {detection_error}")
                         # Continue with next scene even if AI processing fails
                 
                 # Update progress
@@ -311,13 +313,12 @@ def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, lim
                     if include_detection:
                         try:
                             detection_job_id = f"{job_id}_detection_{scene_id}"
-                            detection_result = run_detection_pipeline.apply(
+                            detection_task = run_detection_pipeline.apply_async(
                                 args=[detection_job_id, image_url, scene_id]
-                            ).get()
+                            )
                             
-                            if detection_result and detection_result.get("stored_objects", 0) > 0:
-                                processed += 1
-                                logger.info(f"AI processed scene {scene_id}: {detection_result.get('total_detected', 0)} objects")
+                            # Log that detection was queued but don't wait for result
+                            logger.info(f"🤖 Queued AI detection for scene {scene_id} (task: {detection_task.id})")
                                 
                         except Exception as detection_error:
                             logger.error(f"AI detection failed for imported scene {scene_id}: {detection_error}")

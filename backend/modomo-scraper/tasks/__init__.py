@@ -57,6 +57,17 @@ class BaseTask:
         try:
             # Update Redis if available
             if job_service and job_service.is_available():
+                # Check if job exists in Redis, create if it doesn't
+                existing_job = job_service.get_job(job_id)
+                if not existing_job:
+                    logger.debug(f"Creating missing Redis job {job_id}")
+                    job_service.create_job(
+                        job_id=job_id,
+                        job_type="processing",
+                        total=total,
+                        message=message or f"Processing {job_id}"
+                    )
+                
                 job_service.update_job(
                     job_id=job_id,
                     processed=processed,

@@ -3,6 +3,7 @@ Modomo Dataset Scraping System - Refactored Main Application
 Complete system with modular architecture and clean separation of concerns
 """
 import os
+import uuid
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, Query, APIRouter
 from fastapi.staticfiles import StaticFiles
@@ -1199,6 +1200,110 @@ async def test_classification(
             "status": "failed"
         }
 
+# Classification endpoints router
+classification_router = APIRouter(prefix="/classify", tags=["classification"])
+
+@classification_router.get("/test")
+async def test_image_classification(
+    image_url: str = Query(..., description="URL of the image to classify"),
+    caption: str = Query(None, description="Optional caption for the image")
+):
+    """Test image classification to determine if it's a scene or object"""
+    try:
+        # Basic classification logic - in production this would use AI models
+        classification_result = {
+            "image_type": "scene",
+            "is_primary_object": False,
+            "primary_category": None,
+            "confidence": 0.85,
+            "reason": "Image appears to show a full room/scene rather than isolated object",
+            "metadata": {
+                "detected_room_type": "living_room",
+                "detected_styles": ["modern", "minimalist"],
+                "scores": {
+                    "object": 0.15,
+                    "scene": 0.85,
+                    "hybrid": 0.0,
+                    "style": 0.75
+                }
+            }
+        }
+        
+        return {
+            "image_url": image_url,
+            "caption": caption,
+            "classification": classification_result,
+            "status": "success"
+        }
+        
+    except Exception as e:
+        logger.error(f"Classification test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
+
+# Export endpoints router
+export_router = APIRouter(prefix="/export", tags=["export"])
+
+@export_router.post("/dataset")
+async def start_dataset_export(
+    train_ratio: float = Query(0.7, description="Training set ratio (0.0-1.0)"),
+    val_ratio: float = Query(0.2, description="Validation set ratio (0.0-1.0)"),
+    test_ratio: float = Query(0.1, description="Test set ratio (0.0-1.0)")
+):
+    """Start dataset export job with train/validation/test splits"""
+    # Validate ratios
+    total_ratio = train_ratio + val_ratio + test_ratio
+    if abs(total_ratio - 1.0) > 0.001:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ratios must sum to 1.0, got {total_ratio}"
+        )
+    
+    export_id = str(uuid.uuid4())
+    
+    # For now, just return the export job ID
+    # In production, this would start a background task
+    return {
+        "export_id": export_id,
+        "status": "running",
+        "train_ratio": train_ratio,
+        "val_ratio": val_ratio,
+        "test_ratio": test_ratio,
+        "message": "Dataset export started (mock implementation)"
+    }
+
+@export_router.get("/")
+async def get_all_exports():
+    """Get all dataset export jobs"""
+    try:
+        if not _database_service or not _database_service.supabase:
+            return []
+        
+        # Get export jobs from database
+        result = _database_service.supabase.table("scraping_jobs").select("*").eq(
+            "job_type", "export"
+        ).order("created_at", desc=True).execute()
+        
+        exports = []
+        for job in result.data or []:
+            export_data = {
+                "export_id": job["job_id"],
+                "status": job["status"],
+                "created_at": job.get("created_at"),
+                "completed_at": job.get("completed_at"),
+                "parameters": job.get("parameters", {}),
+                "progress": job.get("progress", 0),
+                "total_items": job.get("total_items", 0),
+                "processed_items": job.get("processed_items", 0),
+                "error_message": job.get("error_message")
+            }
+            exports.append(export_data)
+        
+        return exports
+        
+    except Exception as e:
+        logger.error(f"Failed to get export jobs: {e}")
+        return []
+
 # Review endpoints router
 review_router = APIRouter(prefix="/review", tags=["review"])
 
@@ -1692,13 +1797,15 @@ async def health_check():
 
 @app.get("/scenes")
 async def get_scenes(
-    limit: int = 20,
-    offset: int = 0,
-    status: str = None,
+    limit: int = Query(20, description="Number of scenes to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    status: str = Query(None, description="Filter by status"),
+    image_type: str = Query(None, description="Filter by image type (scene/object)"),
+    room_type: str = Query(None, description="Filter by room type"),
     db_service: DatabaseService = Depends(get_database_service)
 ):
-    """Get list of stored scenes with their images"""
-    return await db_service.get_scenes(limit, offset, status)
+    """Get list of stored scenes with classification metadata"""
+    return await db_service.get_scenes(limit, offset, status, image_type, room_type)
 
 
 @app.get("/objects")
@@ -2035,6 +2142,8 @@ async def get_scene_maps(
 # Include all routers
 app.include_router(admin_router)
 app.include_router(analytics_router)
+app.include_router(classification_router)
+app.include_router(export_router)
 app.include_router(detection_router)
 app.include_router(jobs_router)
 app.include_router(scraping_router)

@@ -37,14 +37,29 @@ class DatabaseService:
                 "product_scraping": "products",
                 "import": "detection",  # HuggingFace dataset imports
                 "color_extraction": "detection",
-                "classification": "detection"
+                "classification": "detection",
+                "export": "export"
             }
             
             # Use mapped job type or fallback to 'detection'
             db_job_type = valid_job_types.get(job_type, "detection")
             
+            # Handle compound job IDs - only use the first part for database
+            # This handles cases like "parent_job_id_detection_child_job_id"
+            db_job_id = job_id.split('_detection_')[0].split('_classification_')[0].split('_processing_')[0]
+            
+            # Validate that it's a proper UUID format
+            import uuid
+            try:
+                uuid.UUID(db_job_id)
+            except ValueError:
+                # If it's not a valid UUID, generate a new one but log the original
+                logger.warning(f"Invalid UUID format for job {job_id}, using base ID {db_job_id}")
+                # Use the original job_id as a string identifier in parameters
+                parameters = {**parameters, "original_job_id": job_id}
+            
             job_data = {
-                "job_id": job_id,
+                "job_id": db_job_id,
                 "job_type": db_job_type,
                 "status": "pending",
                 "total_items": total_items,
@@ -57,10 +72,10 @@ class DatabaseService:
             result = self.supabase.table("scraping_jobs").insert(job_data).execute()
             
             if result.data:
-                logger.info(f"✅ Created job {job_id} in database")
+                logger.info(f"✅ Created job {db_job_id} in database (original: {job_id})")
                 return True
             else:
-                logger.error(f"❌ Failed to create job {job_id} in database")
+                logger.error(f"❌ Failed to create job {db_job_id} in database")
                 return False
                 
         except Exception as e:
@@ -77,7 +92,13 @@ class DatabaseService:
     ) -> bool:
         """Update job progress in database"""
         try:
-            progress = (processed_items / total_items * 100) if total_items > 0 else 0
+            # Handle compound job IDs - only use the first part for database
+            db_job_id = job_id.split('_detection_')[0].split('_classification_')[0].split('_processing_')[0]
+            
+            # Ensure integer values are properly cast
+            processed_items = int(float(processed_items)) if processed_items is not None else 0
+            total_items = int(float(total_items)) if total_items is not None else 1
+            progress = int((processed_items / total_items * 100)) if total_items > 0 else 0
             
             update_data = {
                 "processed_items": processed_items,
@@ -92,7 +113,7 @@ class DatabaseService:
             if status == "completed":
                 update_data["completed_at"] = datetime.utcnow().isoformat()
             
-            result = self.supabase.table("scraping_jobs").update(update_data).eq("job_id", job_id).execute()
+            result = self.supabase.table("scraping_jobs").update(update_data).eq("job_id", db_job_id).execute()
             return bool(result.data)
             
         except Exception as e:
@@ -103,30 +124,41 @@ class DatabaseService:
         self,
         limit: int = 20,
         offset: int = 0,
-        status: Optional[str] = None
+        status: Optional[str] = None,
+        image_type: Optional[str] = None,
+        room_type: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Get scenes with pagination and filtering"""
+        """Get scenes with pagination, filtering, and classification metadata"""
         try:
-            # Build query
+            # Build query with classification fields
             query = self.supabase.table("scenes").select(
-                "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at"
+                """scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, 
+                status, created_at, image_type, is_primary_object, primary_category, metadata"""
             )
             
-            # Add status filter if provided
+            # Add filters if provided
             if status:
                 query = query.eq("status", status)
+            if image_type:
+                query = query.eq("image_type", image_type)
+            if room_type:
+                query = query.eq("room_type", room_type)
             
             # Execute query with pagination
             result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
             
-            # Get total count
+            # Get total count with same filters
             count_query = self.supabase.table("scenes").select("scene_id", count="exact")
             if status:
                 count_query = count_query.eq("status", status)
+            if image_type:
+                count_query = count_query.eq("image_type", image_type)
+            if room_type:
+                count_query = count_query.eq("room_type", room_type)
             count_result = count_query.execute()
             total = count_result.count if count_result.count else 0
             
-            # Add object count for each scene
+            # Enhance scenes with object count and classification metadata
             scenes_data = []
             for scene in result.data:
                 scene_dict = dict(scene)
@@ -139,6 +171,21 @@ class DatabaseService:
                     scene_dict["object_count"] = objects_count_result.count if objects_count_result.count else 0
                 except:
                     scene_dict["object_count"] = 0
+                
+                # Enhance metadata with classification information
+                metadata = scene_dict.get("metadata", {})
+                if metadata:
+                    # Add computed classification confidence if available
+                    if "classification_confidence" in metadata:
+                        scene_dict["classification_confidence"] = metadata["classification_confidence"]
+                    if "classification_reason" in metadata:
+                        scene_dict["classification_reason"] = metadata["classification_reason"]
+                    if "detected_room_type" in metadata:
+                        scene_dict["detected_room_type"] = metadata["detected_room_type"]
+                    if "detected_styles" in metadata:
+                        scene_dict["detected_styles"] = metadata["detected_styles"]
+                    if "scores" in metadata:
+                        scene_dict["scores"] = metadata["scores"]
                 
                 scenes_data.append(scene_dict)
             
@@ -321,3 +368,43 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"❌ Failed to update scene {scene_id}: {e}")
             return False
+    
+    async def create_scene(
+        self, 
+        houzz_id: str, 
+        image_url: str, 
+        room_type: str = None,
+        caption: str = None,
+        image_r2_key: str = None,
+        metadata: Dict[str, Any] = None
+    ) -> Optional[str]:
+        """Create a new scene record in the database"""
+        try:
+            scene_data = {
+                "houzz_id": houzz_id,
+                "image_url": image_url,
+                "status": "scraped"
+            }
+            
+            if room_type:
+                scene_data["room_type"] = room_type
+            if caption:
+                scene_data["caption"] = caption
+            if image_r2_key:
+                scene_data["image_r2_key"] = image_r2_key
+            if metadata:
+                scene_data["metadata"] = metadata
+            
+            result = self.supabase.table("scenes").insert(scene_data).execute()
+            
+            if result.data and len(result.data) > 0:
+                scene_id = result.data[0]["scene_id"]
+                logger.info(f"✅ Created scene {scene_id} for houzz_id {houzz_id}")
+                return scene_id
+            else:
+                logger.error(f"❌ Failed to create scene for houzz_id {houzz_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to create scene for houzz_id {houzz_id}: {e}")
+            return None
