@@ -345,7 +345,7 @@ def schedule_ai_detection_for_import(job_id: str, dataset: str, offset: int, lim
                     
                     # Get all scenes imported by this job
                     scenes_result = _database_service.supabase.table("scenes").select(
-                        "scene_id, image_url"
+                        "scene_id, image_url, image_r2_key"
                     ).like("houzz_id", f"hf_{dataset}_{offset}%").execute()
                     
                     if scenes_result.data:
@@ -516,7 +516,7 @@ def schedule_ai_detection_for_scraping(job_id: str, limit: int, room_types: List
                     # Note: This would need to be refined based on how scraped scenes are identified
                     # For now, get recent scenes (this is a placeholder approach)
                     scenes_result = _database_service.supabase.table("scenes").select(
-                        "scene_id, image_url"
+                        "scene_id, image_url, image_r2_key"
                     ).eq("status", "scraped").order("created_at", desc=True).limit(processed_items).execute()
                     
                     if scenes_result.data:

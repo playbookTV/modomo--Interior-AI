@@ -61,7 +61,7 @@ def extract_metadata_from_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return metadata
 
 
-def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
+def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[tuple]:
     """Upload PIL image to R2 storage synchronously"""
     try:
         import io
@@ -82,7 +82,7 @@ def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
         file_ext = format.lower()
         if file_ext == 'jpeg':
             file_ext = 'jpg'
-        r2_key = f"training-data/hf-imports/{uuid.uuid4()}.{file_ext}"
+        r2_key = f"training-data/scenes/{uuid.uuid4()}.{file_ext}"
         
         # Get content type
         content_type = f"image/{file_ext}"
@@ -93,12 +93,12 @@ def upload_pil_image_to_r2_sync(pil_image, r2_uploader) -> Optional[str]:
         from services.r2_uploader import upload_to_r2_sync
         public_url = upload_to_r2_sync(img_bytes, r2_key, content_type, r2_uploader)
         
-        return public_url
+        return (public_url, r2_key) if public_url else None
         
     except Exception as e:
         logger.error(f"Failed to upload PIL image to R2: {e}")
         return None
-def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optional[str]:
+def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optional[tuple]:
     """
     Synchronous version of extract_image_url_from_item with PIL image handling
     """
@@ -115,24 +115,25 @@ def extract_image_url_from_item_sync(item: Dict[str, Any], r2_uploader) -> Optio
             if hasattr(pil_image, "save"):  # Check if it's a PIL Image
                 logger.info("Found PIL Image in dataset item, uploading to R2...")
                 # Upload PIL image to R2 synchronously
-                image_url = upload_pil_image_to_r2_sync(pil_image, r2_uploader)
-                if image_url:
+                upload_result = upload_pil_image_to_r2_sync(pil_image, r2_uploader)
+                if upload_result:
+                    image_url, r2_key = upload_result
                     logger.info(f"Successfully uploaded PIL image to R2: {image_url}")
-                    return image_url
+                    return (image_url, r2_key)
                 else:
                     logger.warning("Failed to upload PIL image to R2")
         
-        # Fallback to URL extraction (existing logic)
+        # Fallback to URL extraction (existing logic) - return tuple format
         if "image_url" in item:
-            return item["image_url"]
+            return (item["image_url"], None)  # No R2 key for external URLs
         elif "url" in item:
-            return item["url"]
+            return (item["url"], None)
         elif "image" in item and isinstance(item["image"], str):
-            return item["image"]
+            return (item["image"], None)
         elif "img" in item and isinstance(item["img"], str):
-            return item["img"]
+            return (item["img"], None)
         elif "Images" in item and isinstance(item["Images"], str):
-            return item["Images"]
+            return (item["Images"], None)
         
         logger.warning(f"No image URL or PIL Image found in item: {list(item.keys())}")
         return None
@@ -151,8 +152,37 @@ def store_scene_in_database(scene_data: Dict[str, Any]) -> Optional[str]:
             import uuid
             return str(uuid.uuid4())
         
-        # Use database service to store scene
-        scene_id = database_service.create_scene(scene_data)
+        # Use database service to store scene (sync version)
+        import asyncio
+        
+        # Create async wrapper to call the async method
+        async def _create_scene_async():
+            return await database_service.create_scene(
+                houzz_id=scene_data["houzz_id"],
+                image_url=scene_data["image_url"],
+                room_type=scene_data.get("room_type"),
+                caption=scene_data.get("caption"),
+                image_r2_key=scene_data.get("image_r2_key"),
+                metadata=scene_data.get("metadata")
+            )
+        
+        # Run async function in sync context
+        try:
+            # Try to get existing event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running (in async context), create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _create_scene_async())
+                    scene_id = future.result(timeout=30)
+            else:
+                # If no loop is running, run directly
+                scene_id = asyncio.run(_create_scene_async())
+        except RuntimeError:
+            # Fallback: create new event loop
+            scene_id = asyncio.run(_create_scene_async())
+        
         return scene_id
     except Exception as e:
         logger.error(f"Error storing scene in database: {e}")
@@ -288,17 +318,26 @@ def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, lim
         for i, item in enumerate(dataset_data):
             try:
                 # Extract image URL and metadata (sync version with PIL handling)
-                image_url = extract_image_url_from_item_sync(item, r2_uploader)
+                image_result = extract_image_url_from_item_sync(item, r2_uploader)
                 metadata = extract_metadata_from_item(item)
                 
-                if not image_url:
+                if not image_result:
                     logger.warning(f"No image URL found in dataset item {i}")
                     continue
                 
-                # Create scene record
+                # Unpack the result - could be (url, r2_key) or just url
+                if isinstance(image_result, tuple):
+                    image_url, image_r2_key = image_result
+                else:
+                    # Fallback for backward compatibility
+                    image_url = image_result
+                    image_r2_key = None
+                
+                # Create scene record with R2 key
                 scene_data = {
                     "houzz_id": f"hf_{dataset}_{offset + i}",
                     "image_url": image_url,
+                    "image_r2_key": image_r2_key,
                     "metadata": metadata,
                     "status": "imported"
                 }
@@ -351,6 +390,18 @@ def import_huggingface_dataset(self, job_id: str, dataset: str, offset: int, lim
             result["ai_success_rate"] = f"{(processed/imported)*100:.1f}%" if imported > 0 else "0%"
         
         logger.info(f"📥 Import job {job_id} completed: {imported} imported, {processed} AI processed")
+        
+        # Clean up Redis job tracking - import is done, handoff to AI detection
+        from tasks import job_service
+        
+        if job_service and job_service.is_available():
+            # Update Redis job status to completed (cleans up from active queue)
+            job_service.complete_job(
+                job_id=job_id,
+                message=f"Import completed: {imported}/{total_items} scenes imported. Handed off to AI detection."
+            )
+            logger.info(f"🧹 Cleaned up Redis tracking for import job {job_id}")
+        
         return BaseTask.complete_job(job_id, imported, total_items, result)
         
     except Exception as e:
