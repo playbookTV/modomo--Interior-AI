@@ -18,12 +18,27 @@ router = APIRouter(prefix="/detect", tags=["detection"])
 @router.post("/process")
 async def process_detection(
     image_url: str = Body(...),
+    scene_id: str = Body(None),
     background_tasks: BackgroundTasks = None,
     detection_service: DetectionService = None,
-    job_service: JobService = None
+    job_service: JobService = None,
+    db_service: DatabaseService = None
 ):
     """Run object detection on an image"""
     job_id = str(uuid.uuid4())
+    
+    # Create job record in database with parameters for retry functionality
+    if db_service:
+        await db_service.create_job_in_database(
+            job_id=job_id,
+            job_type="detection",
+            total_items=1,
+            parameters={
+                "image_url": image_url,
+                "scene_id": scene_id,
+                "job_type": "detection"
+            }
+        )
     
     if background_tasks and job_service:
         # Create job tracking
@@ -39,7 +54,8 @@ async def process_detection(
             detection_service, 
             job_service, 
             image_url, 
-            job_id
+            job_id,
+            scene_id
         )
         return {"job_id": job_id, "status": "processing"}
     else:
@@ -55,7 +71,8 @@ async def run_detection_task(
     detection_service: DetectionService,
     job_service: JobService,
     image_url: str,
-    job_id: str
+    job_id: str,
+    scene_id: str = None
 ):
     """Background task for running detection pipeline"""
     try:

@@ -180,6 +180,7 @@ async def detection_status():
 @detection_router.post("/process")
 async def process_detection(
     image_url: str = Query(..., description="URL of image to process"),
+    scene_id: str = Query(None, description="Scene ID for database tracking"),
     job_id: str = Query(None, description="Optional job ID for tracking")
 ):
     """Process image for object detection and segmentation"""
@@ -192,6 +193,19 @@ async def process_detection(
             import uuid
             job_id = str(uuid.uuid4())
         
+        # Create job record in database with parameters for retry functionality
+        if _database_service:
+            await _database_service.create_job_in_database(
+                job_id=job_id,
+                job_type="detection",
+                total_items=1,
+                parameters={
+                    "image_url": image_url,
+                    "scene_id": scene_id,
+                    "job_type": "detection"
+                }
+            )
+        
         # Run detection pipeline
         from config.taxonomy import MODOMO_TAXONOMY
         detections = await _detection_service.run_detection_pipeline(image_url, job_id, MODOMO_TAXONOMY)
@@ -199,7 +213,7 @@ async def process_detection(
         # Start Celery task for background AI processing
         try:
             from tasks.detection_tasks import run_detection_pipeline
-            task = run_detection_pipeline.delay(job_id, image_url)
+            task = run_detection_pipeline.delay(job_id, image_url, scene_id)
             
             return {
                 "job_id": job_id,
@@ -960,32 +974,108 @@ async def retry_job(job_id: str):
             
             # Determine which task to restart based on job type and parameters
             if job_type == "import" and "dataset" in parameters:
-                # Restart HuggingFace dataset import
+                # Restart HuggingFace dataset import with hybrid processing
                 dataset = parameters["dataset"]
                 offset = parameters.get("offset", 0)
                 limit = parameters.get("limit", 10)
                 include_detection = parameters.get("include_detection", True)
                 
-                logger.info(f"🔄 Retrying import job: {dataset}, offset={offset}, limit={limit}")
+                logger.info(f"🔄 Retrying hybrid import job: {dataset}, offset={offset}, limit={limit}")
                 
-                # Queue the import task
-                import_huggingface_dataset.apply_async(
-                    args=[new_job_id, dataset, offset, limit, include_detection],
-                    queue="import"
-                )
+                # Step 1: Queue IMPORT ONLY to Celery (Heroku)
+                try:
+                    import_huggingface_dataset.apply_async(
+                        args=[new_job_id, dataset, offset, limit, False],  # include_detection=False for Celery
+                        queue="import"
+                    )
+                    logger.info(f"✅ Queued IMPORT-ONLY job {new_job_id} to Celery")
+                    
+                    # Step 2: If include_detection=True, queue AI detection to Railway
+                    if include_detection:
+                        try:
+                            from tasks.hybrid_processing import schedule_ai_detection_for_import
+                            
+                            # Schedule AI detection to run after import completes
+                            import threading
+                            
+                            def monitor_and_detect():
+                                try:
+                                    schedule_ai_detection_for_import(new_job_id, dataset, offset, limit)
+                                except Exception as e:
+                                    logger.error(f"❌ AI detection scheduling failed: {e}")
+                            
+                            thread = threading.Thread(target=monitor_and_detect)
+                            thread.daemon = True
+                            thread.start()
+                            
+                            logger.info(f"✅ Scheduled AI detection on Railway for job {new_job_id}")
+                            
+                        except ImportError:
+                            logger.warning("⚠️ AI detection scheduling not available")
+                    
+                except Exception as celery_error:
+                    logger.warning(f"⚠️ Celery not available, running full pipeline locally: {celery_error}")
+                    
+                    # Fallback: Run full import + AI detection on Railway
+                    try:
+                        from tasks.hybrid_processing import process_import_with_ai_sync
+                        
+                        import threading
+                        
+                        def run_import():
+                            try:
+                                process_import_with_ai_sync(new_job_id, dataset, offset, limit, include_detection)
+                            except Exception as e:
+                                logger.error(f"❌ Full pipeline processing failed: {e}")
+                        
+                        thread = threading.Thread(target=run_import)
+                        thread.daemon = True
+                        thread.start()
+                        
+                        logger.info(f"✅ Started FULL pipeline processing on Railway (Celery unavailable)")
+                        
+                    except ImportError:
+                        logger.error("❌ Hybrid processing module not available")
                 
             elif job_type == "scenes":
-                # Restart scene scraping
+                # Restart scene scraping with hybrid processing
                 limit = parameters.get("limit", 10)
                 room_types = parameters.get("room_types", [])
                 
-                logger.info(f"🔄 Retrying scenes job: limit={limit}, room_types={room_types}")
+                logger.info(f"🔄 Retrying hybrid scenes job: limit={limit}, room_types={room_types}")
                 
-                # Queue the scraping task
-                run_scraping_job.apply_async(
-                    args=[new_job_id, limit, room_types],
-                    queue="scraping"
-                )
+                # Option 1: Queue to Celery (Heroku) 
+                try:
+                    run_scraping_job.apply_async(
+                        args=[new_job_id, limit, room_types],
+                        queue="scraping"
+                    )
+                    logger.info(f"✅ Queued scraping job {new_job_id} to Celery")
+                    
+                except Exception as celery_error:
+                    logger.warning(f"⚠️ Celery not available, running scraping locally: {celery_error}")
+                    
+                    # Option 2: Run scraping synchronously on Railway with AI
+                    try:
+                        from tasks.hybrid_processing import process_scene_scraping_hybrid
+                        
+                        # Process in background thread
+                        import threading
+                        
+                        def run_scraping():
+                            try:
+                                process_scene_scraping_hybrid(new_job_id, limit, room_types)
+                            except Exception as e:
+                                logger.error(f"❌ Hybrid scraping processing failed: {e}")
+                        
+                        thread = threading.Thread(target=run_scraping)
+                        thread.daemon = True
+                        thread.start()
+                        
+                        logger.info(f"✅ Started hybrid scraping processing on Railway")
+                        
+                    except ImportError:
+                        logger.error("❌ Hybrid processing module not available")
                 
             elif job_type == "detection":
                 # Restart detection processing
@@ -1103,32 +1193,70 @@ async def retry_pending_jobs(
                     
                     # Determine which task to restart based on job type and parameters
                     if job_type_val == "import" and "dataset" in parameters:
-                        # Restart HuggingFace dataset import
+                        # Hybrid restart: Import with detection
                         dataset = parameters["dataset"]
                         offset = parameters.get("offset", 0)
                         limit_val = parameters.get("limit", 10)
                         include_detection = parameters.get("include_detection", True)
                         
-                        logger.info(f"🔄 Bulk retry import job: {dataset}, offset={offset}, limit={limit_val}")
+                        logger.info(f"🔄 Bulk retry hybrid import: {dataset}, offset={offset}, limit={limit_val}")
                         
-                        # Queue the import task
-                        import_huggingface_dataset.apply_async(
-                            args=[new_job_id, dataset, offset, limit_val, include_detection],
-                            queue="import"
-                        )
+                        # Try Celery first, fallback to Railway
+                        try:
+                            import_huggingface_dataset.apply_async(
+                                args=[new_job_id, dataset, offset, limit_val, include_detection],
+                                queue="import"
+                            )
+                            logger.info(f"✅ Bulk queued import to Celery: {new_job_id}")
+                        except:
+                            # Fallback to Railway hybrid processing
+                            try:
+                                from tasks.hybrid_processing import process_import_with_ai_sync
+                                import threading
+                                
+                                def run_import():
+                                    process_import_with_ai_sync(new_job_id, dataset, offset, limit_val, include_detection)
+                                
+                                thread = threading.Thread(target=run_import)
+                                thread.daemon = True
+                                thread.start()
+                                logger.info(f"✅ Bulk started hybrid import on Railway: {new_job_id}")
+                            except Exception as e:
+                                logger.error(f"❌ Bulk hybrid import failed: {e}")
+                                skipped_jobs += 1
+                                continue
                         
                     elif job_type_val == "scenes":
-                        # Restart scene scraping
+                        # Hybrid restart: Scraping with detection
                         limit_val = parameters.get("limit", 10)
                         room_types = parameters.get("room_types", [])
                         
-                        logger.info(f"🔄 Bulk retry scenes job: limit={limit_val}, room_types={room_types}")
+                        logger.info(f"🔄 Bulk retry hybrid scenes: limit={limit_val}")
                         
-                        # Queue the scraping task
-                        run_scraping_job.apply_async(
-                            args=[new_job_id, limit_val, room_types],
-                            queue="scraping"
-                        )
+                        # Try Celery first, fallback to Railway
+                        try:
+                            run_scraping_job.apply_async(
+                                args=[new_job_id, limit_val, room_types],
+                                queue="scraping"
+                            )
+                            logger.info(f"✅ Bulk queued scraping to Celery: {new_job_id}")
+                        except:
+                            # Fallback to Railway hybrid processing
+                            try:
+                                from tasks.hybrid_processing import process_scene_scraping_hybrid
+                                import threading
+                                
+                                def run_scraping():
+                                    process_scene_scraping_hybrid(new_job_id, limit_val, room_types)
+                                
+                                thread = threading.Thread(target=run_scraping)
+                                thread.daemon = True
+                                thread.start()
+                                logger.info(f"✅ Bulk started hybrid scraping on Railway: {new_job_id}")
+                            except Exception as e:
+                                logger.error(f"❌ Bulk hybrid scraping failed: {e}")
+                                skipped_jobs += 1
+                                continue
                     
                     elif job_type_val == "detection":
                         # Restart detection processing
@@ -1189,6 +1317,67 @@ async def retry_pending_jobs(
     except Exception as e:
         logger.error(f"Bulk retry failed: {e}")
         raise HTTPException(status_code=500, detail=f"Bulk retry failed: {str(e)}")
+
+
+@jobs_router.post("/test-hybrid")
+async def test_hybrid_processing(
+    dataset: str = Query("keremberke/interior-design", description="HuggingFace dataset to test"),
+    limit: int = Query(2, description="Number of items to process"),
+    include_detection: bool = Query(True, description="Include AI detection")
+):
+    """Test the hybrid processing approach"""
+    try:
+        import uuid
+        
+        test_job_id = str(uuid.uuid4())
+        
+        logger.info(f"🧪 Starting hybrid processing test: {dataset}")
+        
+        # Create test job in database
+        if _database_service:
+            await _database_service.create_job_in_database(
+                job_id=test_job_id,
+                job_type="import",
+                total_items=limit,
+                parameters={
+                    "dataset": dataset,
+                    "offset": 0,
+                    "limit": limit,
+                    "include_detection": include_detection,
+                    "test_mode": True
+                }
+            )
+        
+        # Run hybrid processing
+        try:
+            from tasks.hybrid_processing import process_import_with_ai_sync
+            import threading
+            
+            def run_test():
+                try:
+                    process_import_with_ai_sync(test_job_id, dataset, 0, limit, include_detection)
+                except Exception as e:
+                    logger.error(f"❌ Test hybrid processing failed: {e}")
+            
+            thread = threading.Thread(target=run_test)
+            thread.daemon = True
+            thread.start()
+            
+            return {
+                "status": "success",
+                "message": "Hybrid processing test started",
+                "job_id": test_job_id,
+                "dataset": dataset,
+                "processing_mode": "railway_hybrid",
+                "monitor_url": f"/jobs/{test_job_id}/status"
+            }
+            
+        except ImportError as e:
+            raise HTTPException(status_code=503, detail=f"Hybrid processing not available: {str(e)}")
+        
+    except Exception as e:
+        logger.error(f"❌ Test hybrid processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
 
 @scraping_router.get("/status")
 async def scraping_status():

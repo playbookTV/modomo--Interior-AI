@@ -56,15 +56,73 @@ async def start_scene_scraping(
             message=f"Starting Houzz scraping for {limit} scenes"
         )
     
-    # Start background scraping + AI processing task
-    background_tasks.add_task(run_scraping_task, job_id, limit, room_types, job_service)
+    # Hybrid Processing: Celery Scraping → Railway AI Detection
+    try:
+        # Step 1: Queue SCRAPING ONLY to Celery (Heroku)
+        from tasks.scraping_tasks import run_scraping_job
+        
+        run_scraping_job.apply_async(
+            args=[job_id, limit, room_types or []],
+            queue="scraping"
+        )
+        logger.info(f"✅ Queued SCRAPING-ONLY job {job_id} to Celery")
+        
+        # Step 2: Schedule AI detection on Railway for scraped scenes
+        try:
+            from tasks.hybrid_processing import schedule_ai_detection_for_scraping
+            
+            background_tasks.add_task(
+                schedule_ai_detection_for_scraping,
+                job_id,
+                limit,
+                room_types or []
+            )
+            
+            logger.info(f"✅ Scheduled AI detection on Railway for scraping job {job_id}")
+            processing_mode = "hybrid_celery_railway_scraping"
+            
+        except ImportError:
+            logger.warning("⚠️ AI detection scheduling not available for scraping")
+            processing_mode = "celery_scraping_only"
+        
+    except Exception as celery_error:
+        logger.warning(f"⚠️ Celery not available, running scraping locally: {celery_error}")
+        
+        # Fallback: Run scraping + AI detection on Railway
+        try:
+            from tasks.hybrid_processing import process_scene_scraping_hybrid
+            
+            background_tasks.add_task(
+                process_scene_scraping_hybrid,
+                job_id,
+                limit,
+                room_types or []
+            )
+            
+            logger.info(f"✅ Started FULL scraping pipeline on Railway (Celery unavailable)")
+            processing_mode = "railway_scraping_pipeline"
+            
+        except ImportError:
+            logger.error("❌ Hybrid scraping processing not available")
+            processing_mode = "error_no_scraping"
+            raise HTTPException(status_code=503, detail="No scraping backend available")
     
     return {
         "job_id": job_id, 
         "status": "running",
-        "message": f"Started scraping {limit} scenes from Houzz UK with full AI processing",
+        "message": f"Started {processing_mode}: {limit} scenes from Houzz UK",
+        "processing_mode": processing_mode,
+        "pipeline": {
+            "scraping": "Celery (Heroku)" if processing_mode.startswith("hybrid") else "Railway",
+            "ai_detection": "Railway",
+            "expected_jobs": 2 if processing_mode.startswith("hybrid") else 1
+        },
         "room_types": room_types or ["all"],
-        "features": ["scraping", "object_detection", "segmentation", "embeddings"]
+        "features": ["scraping", "object_detection", "segmentation", "embeddings"],
+        "monitor_urls": {
+            "scraping_job": f"/jobs/{job_id}/status",
+            "detection_job": f"/jobs/{job_id}_detection/status"
+        }
     }
 
 
@@ -104,23 +162,78 @@ async def import_huggingface_dataset(
             message=f"Importing from HuggingFace dataset: {dataset}"
         )
     
-    # Start background import + AI processing task
-    background_tasks.add_task(
-        run_import_task, 
-        job_id, 
-        dataset, 
-        offset, 
-        limit, 
-        include_detection,
-        job_service
-    )
+    # Hybrid Processing: Celery Import → Railway AI Detection
+    try:
+        # Step 1: Queue IMPORT ONLY to Celery (Heroku)
+        from tasks.scraping_tasks import import_huggingface_dataset as import_task
+        
+        import_task.apply_async(
+            args=[job_id, dataset, offset, limit, False],  # include_detection=False for Celery
+            queue="import"
+        )
+        logger.info(f"✅ Queued IMPORT-ONLY job {job_id} to Celery")
+        
+        # Step 2: If include_detection=True, schedule AI detection on Railway
+        if include_detection:
+            try:
+                from tasks.hybrid_processing import schedule_ai_detection_for_import
+                
+                # Schedule AI detection to run after import completes
+                background_tasks.add_task(
+                    schedule_ai_detection_for_import, 
+                    job_id, 
+                    dataset, 
+                    offset, 
+                    limit
+                )
+                
+                logger.info(f"✅ Scheduled AI detection on Railway for job {job_id}")
+                
+            except ImportError:
+                logger.warning("⚠️ AI detection scheduling not available")
+        
+        processing_mode = "hybrid_celery_railway" if include_detection else "celery_import_only"
+        
+    except Exception as celery_error:
+        logger.warning(f"⚠️ Celery not available, running full pipeline locally: {celery_error}")
+        
+        # Fallback: Run full import + AI detection on Railway
+        try:
+            from tasks.hybrid_processing import process_import_with_ai_sync
+            
+            background_tasks.add_task(
+                process_import_with_ai_sync,
+                job_id,
+                dataset, 
+                offset, 
+                limit, 
+                include_detection
+            )
+            
+            logger.info(f"✅ Started FULL pipeline processing on Railway (Celery unavailable)")
+            processing_mode = "railway_full_pipeline"
+            
+        except ImportError:
+            logger.error("❌ Hybrid processing module not available")
+            processing_mode = "error_no_processing"
+            raise HTTPException(status_code=503, detail="No processing backend available")
     
     return {
         "job_id": job_id, 
         "status": "running",
-        "message": f"Started importing {limit} images from HuggingFace dataset '{dataset}' (offset: {offset})",
+        "message": f"Started {processing_mode}: {limit} images from '{dataset}' (offset: {offset})",
         "dataset": dataset,
-        "features": ["import", "object_detection", "segmentation", "embeddings"] if include_detection else ["import"]
+        "processing_mode": processing_mode,
+        "pipeline": {
+            "import": "Celery (Heroku)" if processing_mode.startswith("hybrid") else "Railway",
+            "ai_detection": "Railway" if include_detection else "disabled",
+            "expected_jobs": 2 if (include_detection and processing_mode.startswith("hybrid")) else 1
+        },
+        "features": ["import", "object_detection", "segmentation", "embeddings"] if include_detection else ["import"],
+        "monitor_urls": {
+            "import_job": f"/jobs/{job_id}/status",
+            "detection_job": f"/jobs/{job_id}_detection/status" if include_detection else None
+        }
     }
 
 
