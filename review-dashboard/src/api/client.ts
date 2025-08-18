@@ -297,3 +297,28 @@ export const getScenesWithClassification = async (params: {
   const response = await apiClient.get('/scenes', { params })
   return response.data
 }
+
+// Job management endpoints
+export const retryJob = async (jobId: string): Promise<{ status: string; message: string; new_job_id?: string }> => {
+  const response = await apiClient.post(`/jobs/${jobId}/retry`)
+  return response.data
+}
+
+export const cancelJob = async (jobId: string): Promise<{ status: string; message: string }> => {
+  const response = await apiClient.post(`/jobs/${jobId}/cancel`)
+  return response.data
+}
+
+export const retryPendingJobs = async (params?: {
+  job_type?: string
+  older_than_hours?: number
+  limit?: number
+}): Promise<{ 
+  retried_jobs: number
+  new_job_ids: string[]
+  skipped_jobs: number
+  message: string
+}> => {
+  const response = await apiClient.post('/jobs/retry-pending', params || {})
+  return response.data
+}

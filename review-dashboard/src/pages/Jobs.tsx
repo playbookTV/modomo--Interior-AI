@@ -4,9 +4,9 @@ import {
   Play, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, 
   Pause, RefreshCw, Filter, Search, Calendar, Activity,
   Database, Sparkles, Eye, Download, Settings, Zap, Palette,
-  Mountain, Layers
+  Mountain, Layers, RotateCcw, Trash2
 } from 'lucide-react'
-import { getActiveJobs, getRecentErrors, getJobHistory } from '../api/client'
+import { getActiveJobs, getRecentErrors, getJobHistory, retryJob, cancelJob, retryPendingJobs } from '../api/client'
 
 interface Job {
   job_id: string
@@ -100,6 +100,11 @@ export function Jobs() {
   const [selectedMapTypes, setSelectedMapTypes] = useState(['depth', 'edge'])
   const [forceRegenerate, setForceRegenerate] = useState(false)
 
+  // Job retry state
+  const [retryingJobs, setRetryingJobs] = useState<Set<string>>(new Set())
+  const [bulkRetryInProgress, setBulkRetryInProgress] = useState(false)
+  const [retryResult, setRetryResult] = useState<string | null>(null)
+
   // Fetch all jobs with real-time updates
   const { data: jobs = [], isLoading, error, refetch } = useQuery({
     queryKey: ['all-jobs'],
@@ -178,6 +183,54 @@ export function Jobs() {
       setMapGenerationError(error instanceof Error ? error.message : 'Unknown error occurred')
     } finally {
       setIsGeneratingMaps(false)
+    }
+  }
+
+  // Job retry handlers
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      setRetryingJobs(prev => new Set(prev).add(jobId))
+      setRetryResult(null)
+      
+      const result = await retryJob(jobId)
+      setRetryResult(`Job ${jobId.slice(-8)} retry: ${result.message}`)
+      
+      // Refresh jobs list
+      refetch()
+      
+    } catch (error) {
+      console.error(`Failed to retry job ${jobId}:`, error)
+      setRetryResult(`Failed to retry job ${jobId.slice(-8)}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setRetryingJobs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(jobId)
+        return newSet
+      })
+    }
+  }
+
+  const handleBulkRetryPending = async () => {
+    try {
+      setBulkRetryInProgress(true)
+      setRetryResult(null)
+      
+      // Retry jobs that are older than 1 hour and still pending
+      const result = await retryPendingJobs({
+        older_than_hours: 1,
+        limit: 50 // Retry up to 50 jobs at once
+      })
+      
+      setRetryResult(`Bulk retry complete: ${result.retried_jobs} jobs restarted, ${result.skipped_jobs} skipped. ${result.message}`)
+      
+      // Refresh jobs list
+      refetch()
+      
+    } catch (error) {
+      console.error('Bulk retry failed:', error)
+      setRetryResult(`Bulk retry failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setBulkRetryInProgress(false)
     }
   }
 
@@ -304,6 +357,71 @@ export function Jobs() {
           </div>
         </div>
       </div>
+
+      {/* Job Management Section */}
+      {stats.running > 0 && (
+        <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-xl p-6 border border-orange-200">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-orange-100 rounded-lg">
+              <RotateCcw className="h-6 w-6 text-orange-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Job Management</h2>
+              <p className="text-gray-600">Retry stuck jobs or manage pending operations</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4 mb-4">
+            <button
+              onClick={handleBulkRetryPending}
+              disabled={bulkRetryInProgress || stats.running === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {bulkRetryInProgress ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Retrying...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="h-4 w-4" />
+                  Retry Stuck Jobs
+                </>
+              )}
+            </button>
+            
+            <div className="text-sm text-gray-600">
+              This will retry jobs that have been pending for more than 1 hour
+            </div>
+          </div>
+          
+          {retryResult && (
+            <div className={`mt-4 p-4 rounded-lg border ${
+              retryResult.includes('Failed') ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+            }`}>
+              <div className="flex items-start">
+                {retryResult.includes('Failed') ? (
+                  <XCircle className="h-5 w-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+                ) : (
+                  <CheckCircle className="h-5 w-5 text-green-600 mr-3 mt-0.5 flex-shrink-0" />
+                )}
+                <div className="flex-1">
+                  <h4 className={`text-sm font-medium mb-1 ${
+                    retryResult.includes('Failed') ? 'text-red-800' : 'text-green-800'
+                  }`}>
+                    {retryResult.includes('Failed') ? 'Retry Failed' : 'Retry Complete'}
+                  </h4>
+                  <p className={`text-sm ${
+                    retryResult.includes('Failed') ? 'text-red-700' : 'text-green-700'
+                  }`}>
+                    {retryResult}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Map Generation Section */}
       <div className="bg-gradient-to-r from-purple-50 to-orange-50 rounded-xl p-6 border border-purple-200">
@@ -691,6 +809,40 @@ export function Jobs() {
                       )}
                     </div>
                   </div>
+                </div>
+                
+                {/* Job Actions */}
+                <div className="flex items-center space-x-2 ml-4">
+                  {(job.status === 'pending' || job.status === 'failed' || job.status === 'error') && (
+                    <button
+                      onClick={() => handleRetryJob(job.job_id)}
+                      disabled={retryingJobs.has(job.job_id)}
+                      className="flex items-center space-x-1 px-3 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 text-sm rounded-lg border border-orange-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Retry this job"
+                    >
+                      {retryingJobs.has(job.job_id) ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Retrying...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw className="h-3 w-3" />
+                          <span>Retry</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                  
+                  {(job.status === 'running' || job.status === 'processing') && (
+                    <button
+                      className="flex items-center space-x-1 px-3 py-1.5 bg-red-100 text-red-700 hover:bg-red-200 text-sm rounded-lg border border-red-200 transition-colors"
+                      title="Cancel this job"
+                    >
+                      <XCircle className="h-3 w-3" />
+                      <span>Cancel</span>
+                    </button>
+                  )}
                 </div>
               </div>
               

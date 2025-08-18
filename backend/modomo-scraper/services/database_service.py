@@ -132,8 +132,7 @@ class DatabaseService:
         try:
             # Build query with classification fields
             query = self.supabase.table("scenes").select(
-                """scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, 
-                status, created_at, image_type, is_primary_object, primary_category, metadata"""
+                "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at, image_type, is_primary_object, primary_category, metadata"
             )
             
             # Add filters if provided

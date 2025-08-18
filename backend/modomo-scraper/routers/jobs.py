@@ -186,3 +186,246 @@ async def get_job_history(
     except Exception as e:
         logger.error(f"Failed to get job history: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve job history: {str(e)}")
+
+
+@router.post("/{job_id}/retry")
+async def retry_job(
+    job_id: str, 
+    job_service: JobService = Depends(), 
+    db_service: DatabaseService = Depends()
+):
+    """Retry a failed or stuck job"""
+    try:
+        # Get job details from database
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Check if job exists and is retryable
+        result = db_service.supabase.table("scraping_jobs").select("*").eq("job_id", job_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        job = result.data[0]
+        
+        # Check if job can be retried
+        if job["status"] not in ["pending", "failed", "error"]:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Job with status '{job['status']}' cannot be retried"
+            )
+        
+        # Create new job with same parameters
+        import uuid
+        from tasks.scraping_tasks import import_huggingface_dataset, run_scraping_job
+        from tasks.detection_tasks import run_detection_pipeline
+        from datetime import datetime
+        
+        new_job_id = str(uuid.uuid4())
+        job_type = job.get("job_type", "processing")
+        parameters = job.get("parameters", {})
+        
+        # Determine which task to restart based on job type and parameters
+        if job_type == "import" and "dataset" in parameters:
+            # Restart HuggingFace dataset import
+            dataset = parameters["dataset"]
+            offset = parameters.get("offset", 0)
+            limit = parameters.get("limit", 10)
+            include_detection = parameters.get("include_detection", True)
+            
+            # Queue the import task
+            import_huggingface_dataset.apply_async(
+                args=[new_job_id, dataset, offset, limit, include_detection],
+                queue="import"
+            )
+            
+        elif job_type == "scenes":
+            # Restart scene scraping
+            limit = parameters.get("limit", 10)
+            room_types = parameters.get("room_types", [])
+            
+            # Queue the scraping task
+            run_scraping_job.apply_async(
+                args=[new_job_id, limit, room_types],
+                queue="scraping"
+            )
+            
+        elif job_type == "detection":
+            # Restart detection processing
+            image_url = parameters.get("image_url")
+            scene_id = parameters.get("scene_id")
+            
+            if image_url and scene_id:
+                run_detection_pipeline.apply_async(
+                    args=[new_job_id, image_url, scene_id],
+                    queue="ai_processing"
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Missing required parameters for detection job retry"
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job type '{job_type}' retry not implemented"
+            )
+        
+        # Mark original job as cancelled
+        db_service.supabase.table("scraping_jobs").update({
+            "status": "cancelled",
+            "error_message": f"Job cancelled and retried as {new_job_id}",
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("job_id", job_id).execute()
+        
+        logger.info(f"✅ Job {job_id} retried as {new_job_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Job retried successfully",
+            "original_job_id": job_id,
+            "new_job_id": new_job_id,
+            "job_type": job_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retry job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retry job: {str(e)}")
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: str, db_service: DatabaseService = Depends()):
+    """Cancel a running job"""
+    try:
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        from datetime import datetime
+        
+        # Update job status to cancelled
+        result = db_service.supabase.table("scraping_jobs").update({
+            "status": "cancelled",
+            "error_message": "Job cancelled by user",
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("job_id", job_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        logger.info(f"✅ Job {job_id} cancelled")
+        
+        return {
+            "status": "success",
+            "message": "Job cancelled successfully",
+            "job_id": job_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
+
+
+@router.post("/retry-pending")
+async def retry_pending_jobs(
+    job_type: str = Query(None, description="Filter by job type"),
+    older_than_hours: int = Query(1, description="Retry jobs older than X hours"),
+    limit: int = Query(50, description="Maximum jobs to retry"),
+    db_service: DatabaseService = Depends()
+):
+    """Bulk retry pending jobs that are stuck"""
+    try:
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        from datetime import datetime, timedelta
+        
+        # Calculate cutoff time
+        cutoff_time = datetime.utcnow() - timedelta(hours=older_than_hours)
+        
+        # Build query for stuck pending jobs
+        query = db_service.supabase.table("scraping_jobs").select("*").eq("status", "pending").lt("created_at", cutoff_time.isoformat())
+        
+        if job_type:
+            query = query.eq("job_type", job_type)
+        
+        # Get stuck jobs
+        result = query.limit(limit).execute()
+        
+        if not result.data:
+            return {
+                "retried_jobs": 0,
+                "new_job_ids": [],
+                "skipped_jobs": 0,
+                "message": "No pending jobs found to retry"
+            }
+        
+        retried_jobs = []
+        skipped_jobs = 0
+        
+        for job in result.data:
+            try:
+                # Retry each job individually (simulate the retry logic)
+                job_id = job["job_id"]
+                
+                # Create new job with same parameters
+                import uuid
+                from tasks.scraping_tasks import import_huggingface_dataset, run_scraping_job
+                from tasks.detection_tasks import run_detection_pipeline
+                
+                new_job_id = str(uuid.uuid4())
+                job_type_val = job.get("job_type", "processing")
+                parameters = job.get("parameters", {})
+                
+                # Determine which task to restart based on job type and parameters
+                if job_type_val == "import" and "dataset" in parameters:
+                    # Restart HuggingFace dataset import
+                    dataset = parameters["dataset"]
+                    offset = parameters.get("offset", 0)
+                    limit_val = parameters.get("limit", 10)
+                    include_detection = parameters.get("include_detection", True)
+                    
+                    # Queue the import task
+                    import_huggingface_dataset.apply_async(
+                        args=[new_job_id, dataset, offset, limit_val, include_detection],
+                        queue="import"
+                    )
+                    
+                elif job_type_val == "scenes":
+                    # Restart scene scraping
+                    limit_val = parameters.get("limit", 10)
+                    room_types = parameters.get("room_types", [])
+                    
+                    # Queue the scraping task
+                    run_scraping_job.apply_async(
+                        args=[new_job_id, limit_val, room_types],
+                        queue="scraping"
+                    )
+                
+                # Mark original job as cancelled
+                db_service.supabase.table("scraping_jobs").update({
+                    "status": "cancelled",
+                    "error_message": f"Job cancelled and retried as {new_job_id}",
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("job_id", job_id).execute()
+                
+                retried_jobs.append(new_job_id)
+                logger.info(f"✅ Bulk retry: Job {job_id} retried as {new_job_id}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to retry job {job['job_id']}: {e}")
+                skipped_jobs += 1
+        
+        return {
+            "retried_jobs": len(retried_jobs),
+            "new_job_ids": retried_jobs,
+            "skipped_jobs": skipped_jobs,
+            "message": f"Retried {len(retried_jobs)} jobs, skipped {skipped_jobs}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Bulk retry failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Bulk retry failed: {str(e)}")

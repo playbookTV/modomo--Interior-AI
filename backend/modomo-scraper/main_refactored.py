@@ -921,6 +921,275 @@ async def purge_celery_queue(queue_name: str):
         logger.error(f"❌ Purge Celery queue error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to purge queue: {str(e)}")
 
+
+@jobs_router.post("/{job_id}/retry")
+async def retry_job(job_id: str):
+    """Retry a failed or stuck job"""
+    try:
+        # Get job details from database
+        if not _database_service or not _database_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Check if job exists and is retryable
+        result = _database_service.supabase.table("scraping_jobs").select("*").eq("job_id", job_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        job = result.data[0]
+        
+        # Check if job can be retried
+        if job["status"] not in ["pending", "failed", "error"]:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Job with status '{job['status']}' cannot be retried"
+            )
+        
+        # Create new job with same parameters
+        import uuid
+        from datetime import datetime
+        
+        new_job_id = str(uuid.uuid4())
+        job_type = job.get("job_type", "processing")
+        parameters = job.get("parameters", {})
+        
+        # Import Celery tasks
+        try:
+            from tasks.scraping_tasks import import_huggingface_dataset, run_scraping_job
+            from tasks.detection_tasks import run_detection_pipeline
+            
+            # Determine which task to restart based on job type and parameters
+            if job_type == "import" and "dataset" in parameters:
+                # Restart HuggingFace dataset import
+                dataset = parameters["dataset"]
+                offset = parameters.get("offset", 0)
+                limit = parameters.get("limit", 10)
+                include_detection = parameters.get("include_detection", True)
+                
+                logger.info(f"🔄 Retrying import job: {dataset}, offset={offset}, limit={limit}")
+                
+                # Queue the import task
+                import_huggingface_dataset.apply_async(
+                    args=[new_job_id, dataset, offset, limit, include_detection],
+                    queue="import"
+                )
+                
+            elif job_type == "scenes":
+                # Restart scene scraping
+                limit = parameters.get("limit", 10)
+                room_types = parameters.get("room_types", [])
+                
+                logger.info(f"🔄 Retrying scenes job: limit={limit}, room_types={room_types}")
+                
+                # Queue the scraping task
+                run_scraping_job.apply_async(
+                    args=[new_job_id, limit, room_types],
+                    queue="scraping"
+                )
+                
+            elif job_type == "detection":
+                # Restart detection processing
+                image_url = parameters.get("image_url")
+                scene_id = parameters.get("scene_id")
+                
+                if image_url and scene_id:
+                    logger.info(f"🔄 Retrying detection job: scene_id={scene_id}")
+                    run_detection_pipeline.apply_async(
+                        args=[new_job_id, image_url, scene_id],
+                        queue="ai_processing"
+                    )
+                else:
+                    logger.error(f"❌ Detection job missing parameters: image_url={image_url}, scene_id={scene_id}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Missing required parameters for detection job retry: image_url={bool(image_url)}, scene_id={bool(scene_id)}"
+                    )
+            else:
+                logger.warning(f"⚠️ Job type '{job_type}' retry not implemented, creating placeholder")
+                # For unknown job types, create placeholder job in database
+                await _database_service.create_job_in_database(
+                    job_id=new_job_id,
+                    job_type=job_type,
+                    total_items=parameters.get("limit", parameters.get("total_items", 1)),
+                    parameters=parameters
+                )
+                
+        except ImportError as e:
+            logger.warning(f"Celery tasks not available for retry: {e}")
+            # Create a placeholder job in database for tracking
+            await _database_service.create_job_in_database(
+                job_id=new_job_id,
+                job_type=job_type,
+                total_items=parameters.get("limit", 1),
+                parameters=parameters
+            )
+        
+        # Mark original job as cancelled
+        _database_service.supabase.table("scraping_jobs").update({
+            "status": "cancelled",
+            "error_message": f"Job cancelled and retried as {new_job_id}",
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("job_id", job_id).execute()
+        
+        logger.info(f"✅ Job {job_id} retried as {new_job_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Job retried successfully",
+            "original_job_id": job_id,
+            "new_job_id": new_job_id,
+            "job_type": job_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retry job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retry job: {str(e)}")
+
+
+@jobs_router.post("/retry-pending")
+async def retry_pending_jobs(
+    job_type: str = Query(None, description="Filter by job type"),
+    older_than_hours: int = Query(1, description="Retry jobs older than X hours"),
+    limit: int = Query(50, description="Maximum jobs to retry")
+):
+    """Bulk retry pending jobs that are stuck"""
+    try:
+        if not _database_service or not _database_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        from datetime import datetime, timedelta
+        
+        # Calculate cutoff time
+        cutoff_time = datetime.utcnow() - timedelta(hours=older_than_hours)
+        
+        # Build query for stuck pending jobs
+        query = _database_service.supabase.table("scraping_jobs").select("*").eq("status", "pending").lt("created_at", cutoff_time.isoformat())
+        
+        if job_type:
+            query = query.eq("job_type", job_type)
+        
+        # Get stuck jobs
+        result = query.limit(limit).execute()
+        
+        if not result.data:
+            return {
+                "retried_jobs": 0,
+                "new_job_ids": [],
+                "skipped_jobs": 0,
+                "message": "No pending jobs found to retry"
+            }
+        
+        retried_jobs = []
+        skipped_jobs = 0
+        
+        for job in result.data:
+            try:
+                # Retry each job individually
+                job_id = job["job_id"]
+                
+                # Create new job with same parameters
+                import uuid
+                
+                new_job_id = str(uuid.uuid4())
+                job_type_val = job.get("job_type", "processing")
+                parameters = job.get("parameters", {})
+                
+                # Import Celery tasks
+                try:
+                    from tasks.scraping_tasks import import_huggingface_dataset, run_scraping_job
+                    from tasks.detection_tasks import run_detection_pipeline
+                    
+                    # Determine which task to restart based on job type and parameters
+                    if job_type_val == "import" and "dataset" in parameters:
+                        # Restart HuggingFace dataset import
+                        dataset = parameters["dataset"]
+                        offset = parameters.get("offset", 0)
+                        limit_val = parameters.get("limit", 10)
+                        include_detection = parameters.get("include_detection", True)
+                        
+                        logger.info(f"🔄 Bulk retry import job: {dataset}, offset={offset}, limit={limit_val}")
+                        
+                        # Queue the import task
+                        import_huggingface_dataset.apply_async(
+                            args=[new_job_id, dataset, offset, limit_val, include_detection],
+                            queue="import"
+                        )
+                        
+                    elif job_type_val == "scenes":
+                        # Restart scene scraping
+                        limit_val = parameters.get("limit", 10)
+                        room_types = parameters.get("room_types", [])
+                        
+                        logger.info(f"🔄 Bulk retry scenes job: limit={limit_val}, room_types={room_types}")
+                        
+                        # Queue the scraping task
+                        run_scraping_job.apply_async(
+                            args=[new_job_id, limit_val, room_types],
+                            queue="scraping"
+                        )
+                    
+                    elif job_type_val == "detection":
+                        # Restart detection processing
+                        image_url = parameters.get("image_url")
+                        scene_id = parameters.get("scene_id")
+                        
+                        if image_url and scene_id:
+                            logger.info(f"🔄 Bulk retry detection job: scene_id={scene_id}")
+                            run_detection_pipeline.apply_async(
+                                args=[new_job_id, image_url, scene_id],
+                                queue="ai_processing"
+                            )
+                        else:
+                            logger.warning(f"⚠️ Skipping detection job {job_id} - missing parameters")
+                            skipped_jobs += 1
+                            continue
+                    
+                    else:
+                        logger.info(f"🔄 Bulk retry unknown job type '{job_type_val}' - creating placeholder")
+                        # For unknown job types, create placeholder job in database
+                        await _database_service.create_job_in_database(
+                            job_id=new_job_id,
+                            job_type=job_type_val,
+                            total_items=parameters.get("limit", parameters.get("total_items", 1)),
+                            parameters=parameters
+                        )
+                        
+                except ImportError:
+                    # Create placeholder job in database
+                    await _database_service.create_job_in_database(
+                        job_id=new_job_id,
+                        job_type=job_type_val,
+                        total_items=parameters.get("limit", 1),
+                        parameters=parameters
+                    )
+                
+                # Mark original job as cancelled
+                _database_service.supabase.table("scraping_jobs").update({
+                    "status": "cancelled",
+                    "error_message": f"Job cancelled and retried as {new_job_id}",
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("job_id", job_id).execute()
+                
+                retried_jobs.append(new_job_id)
+                logger.info(f"✅ Bulk retry: Job {job_id} retried as {new_job_id}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to retry job {job['job_id']}: {e}")
+                skipped_jobs += 1
+        
+        return {
+            "retried_jobs": len(retried_jobs),
+            "new_job_ids": retried_jobs,
+            "skipped_jobs": skipped_jobs,
+            "message": f"Retried {len(retried_jobs)} jobs, skipped {skipped_jobs}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Bulk retry failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Bulk retry failed: {str(e)}")
+
 @scraping_router.get("/status")
 async def scraping_status():
     return {"status": "available", "message": "Scraping service endpoint"}
