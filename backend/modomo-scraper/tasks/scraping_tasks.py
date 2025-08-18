@@ -8,6 +8,8 @@ from typing import Dict, Any, List, Optional
 from celery_app import celery_app
 from tasks import BaseTask, database_service
 from tasks.detection_tasks import run_detection_pipeline
+logger = structlog.get_logger(__name__)
+
 # Import PIL with fallback for environments without it
 try:
     from PIL import Image
@@ -16,8 +18,6 @@ except ImportError:
     PIL_AVAILABLE = False
     logger.warning("PIL not available - PIL image processing will be disabled")
 from services.r2_uploader import create_r2_uploader
-
-logger = structlog.get_logger(__name__)
 
 
 # Helper functions (moved to top for proper scope)
