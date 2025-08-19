@@ -6,17 +6,15 @@ from typing import Dict, Any
 import structlog
 
 from services.database_service import DatabaseService
+from core.dependencies import get_database_service
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/test-supabase")
-async def test_supabase():
+async def test_supabase(database_service: DatabaseService = Depends(get_database_service)):
     """Test Supabase connection and permissions"""
-    # Import here to avoid circular dependency
-    from main_refactored import database_service
-    
     if not database_service:
         raise HTTPException(status_code=503, detail="Database service not available")
     

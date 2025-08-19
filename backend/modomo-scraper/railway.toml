@@ -1,6 +1,6 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile.railway-optimized"
+dockerfilePath = "Dockerfile.smart"
 
 [deploy]
 startCommand = "python main_railway.py"

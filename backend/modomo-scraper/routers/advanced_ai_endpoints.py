@@ -156,7 +156,7 @@ def register_advanced_ai_routes(app: FastAPI):
             logger.error(f"Color search API failed: {e}")
             return {"error": str(e)}
 
-    @app.get("/debug/detector-status")
+    @app.get("/debug/detector-status", response_model=None)
     async def debug_detector_status():
         """Debug endpoint to check multi-model detector status"""
         detection_service = get_detection_service()

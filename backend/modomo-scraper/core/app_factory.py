@@ -144,6 +144,9 @@ def initialize_services() -> dict:
 def register_routers(app: FastAPI):
     """Register all application routers"""
     try:
+        # Add response_model=None to endpoints that might return service objects
+        from fastapi.responses import JSONResponse
+        from fastapi import HTTPException
         # Import routers with fallback to simple versions
         try:
             from routers.jobs import router as jobs_router
@@ -195,6 +198,28 @@ def register_routers(app: FastAPI):
         register_advanced_ai_routes(app)
         register_admin_utilities(app)
         
+        # Add debug endpoint with explicit response model to prevent Supabase Client serialization error
+        @app.get("/debug/database-status", response_model=None)
+        async def debug_database_status():
+            from core.dependencies import get_database_service
+            """Debug database connection status without returning client object"""
+            try:
+                database_service = get_database_service()
+                if not database_service:
+                    return {"status": "unavailable", "error": "Database service not initialized"}
+                
+                # Test connection without returning the client
+                result = database_service.supabase.table("scenes").select("scene_id", count="exact").limit(1).execute()
+                
+                return {
+                    "status": "connected",
+                    "can_query": True,
+                    "total_scenes": result.count or 0,
+                    "supabase_url": hasattr(database_service, 'supabase') and database_service.supabase.url is not None
+                }
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        
         # Set R2 clients for endpoints that need them
         try:
             from core.dependencies import get_r2_client, get_r2_bucket_name
@@ -212,6 +237,16 @@ def register_routers(app: FastAPI):
         
     except Exception as e:
         logger.error(f"❌ Router registration failed: {e}")
+        
+        # If router registration fails due to response model issues, try to continue
+        # This prevents the entire app from failing due to a single problematic endpoint
+        try:
+            # Register only essential endpoints as fallback
+            @app.get("/health", response_model=None)
+            async def emergency_health():
+                return {"status": "emergency_mode", "error": "Router registration partially failed"}
+        except Exception as fallback_error:
+            logger.error(f"❌ Even fallback endpoint registration failed: {fallback_error}")
 
 
 def add_health_endpoints(app: FastAPI):

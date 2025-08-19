@@ -123,7 +123,7 @@ def register_admin_utilities(app: FastAPI):
                 "results": migration_results
             }
 
-    @app.get("/debug/color-deps")
+    @app.get("/debug/color-deps", response_model=None)
     async def debug_color_dependencies():
         """Debug endpoint to check color extraction dependencies"""
         try:
@@ -169,7 +169,7 @@ def register_admin_utilities(app: FastAPI):
             "color_extractor_loaded": "detection_service" in locals() and detection_service is not None
         }
 
-    @app.get("/admin/system-info")
+    @app.get("/admin/system-info", response_model=None)
     async def get_system_info():
         """Get comprehensive system information for debugging"""
         try:
@@ -207,7 +207,7 @@ def register_admin_utilities(app: FastAPI):
             "mode": "refactored_architecture"
         }
 
-    @app.get("/admin/health-detailed")
+    @app.get("/admin/health-detailed", response_model=None)
     async def detailed_health_check():
         """Comprehensive health check with detailed AI model status"""
         from core.dependencies import get_detection_service, get_database_service, get_job_service

@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.get("/active")
+@router.get("/active", response_model=None)
 async def get_active_jobs(
     job_service: JobService = Depends(),
     db_service: DatabaseService = Depends()
@@ -67,7 +67,7 @@ async def get_active_jobs(
     return all_jobs
 
 
-@router.get("/{job_id}/status")
+@router.get("/{job_id}/status", response_model=None)
 async def get_job_status(job_id: str, job_service: JobService = Depends()):
     """Get the status and progress of a specific job"""
     if not job_service.is_available():
@@ -81,7 +81,7 @@ async def get_job_status(job_id: str, job_service: JobService = Depends()):
     return job_data
 
 
-@router.get("/errors/recent")
+@router.get("/errors/recent", response_model=None)
 async def get_recent_job_errors(job_service: JobService = Depends()):
     """Get recent job errors for frontend display"""
     if not job_service.is_available():
@@ -100,7 +100,7 @@ async def get_recent_job_errors(job_service: JobService = Depends()):
         return {"errors": [], "error": str(e)}
 
 
-@router.get("/history")
+@router.get("/history", response_model=None)
 async def get_job_history(
     limit: int = Query(50, description="Number of historical jobs to return"),
     offset: int = Query(0, description="Offset for pagination"),
@@ -188,7 +188,7 @@ async def get_job_history(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve job history: {str(e)}")
 
 
-@router.post("/{job_id}/retry")
+@router.post("/{job_id}/retry", response_model=None)
 async def retry_job(
     job_id: str, 
     job_service: JobService = Depends(), 
@@ -295,7 +295,7 @@ async def retry_job(
         raise HTTPException(status_code=500, detail=f"Failed to retry job: {str(e)}")
 
 
-@router.post("/{job_id}/cancel")
+@router.post("/{job_id}/cancel", response_model=None)
 async def cancel_job(job_id: str, db_service: DatabaseService = Depends()):
     """Cancel a running job"""
     try:
@@ -329,7 +329,7 @@ async def cancel_job(job_id: str, db_service: DatabaseService = Depends()):
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 
 
-@router.post("/retry-pending")
+@router.post("/retry-pending", response_model=None)
 async def retry_pending_jobs(
     job_type: str = Query(None, description="Filter by job type"),
     older_than_hours: int = Query(1, description="Retry jobs older than X hours"),
