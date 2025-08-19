@@ -117,6 +117,19 @@ def get_app():
     # Try to load refactored architecture first, then fallback to original
     try:
         print("🚀 Loading refactored architecture...")
+        # Ensure all necessary modules are available
+        import sys
+        print(f"🔍 Python path: {sys.path[:3]}...")
+        
+        # Test critical imports first
+        try:
+            import structlog
+            import supabase
+            print("✅ Critical dependencies available")
+        except ImportError as ie:
+            print(f"❌ Missing critical dependency: {ie}")
+            raise
+            
         from main_refactored import app
         print("✅ Refactored architecture loaded successfully")
         return app

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react'
+//import React, { useEffect, useMemo, useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getReviewQueue, updateReview, approveScene, rejectScene } from '../api/client'
+import { getSceneForReview, updateReview, approveScene, rejectScene } from '../api/client'
 import { ReviewInterface } from '../components/ReviewInterface'
 import type { DetectedObject, Scene } from '../types'
 
@@ -10,31 +11,27 @@ export function SceneDetail() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const { data: scenes, isLoading, isError } = useQuery({
-    queryKey: ['review-queue'],
-    queryFn: () => getReviewQueue({})
+  const { data: scene, isLoading, isError } = useQuery({
+    queryKey: ['scene-detail', sceneId],
+    queryFn: () => getSceneForReview(sceneId!),
+    enabled: !!sceneId
   })
 
-  const initialScene = useMemo<Scene | undefined>(
-    () => scenes?.find((s) => s.scene_id === sceneId),
-    [scenes, sceneId]
-  )
-
-  const [localScene, setLocalScene] = useState<Scene | undefined>(initialScene)
+  const [localScene, setLocalScene] = useState<Scene | undefined>(scene)
 
   useEffect(() => {
     // Sync local state when data (or route) changes
-    if (initialScene) {
-      setLocalScene(initialScene)
+    if (scene) {
+      setLocalScene(scene)
       
       // Debug: Log SAM2 segmentation status
-      if (initialScene.objects && Array.isArray(initialScene.objects)) {
+      if (scene.objects && Array.isArray(scene.objects)) {
         console.log('Scene loaded - SAM2 Analysis:')
-        console.log(`Total objects: ${initialScene.objects.length}`)
-        console.log(`Objects with SAM2 masks: ${initialScene.objects.filter(obj => obj.mask_url).length}`)
-        console.log(`Bounding box fallbacks: ${initialScene.objects.filter(obj => !obj.mask_url).length}`)
+        console.log(`Total objects: ${scene.objects.length}`)
+        console.log(`Objects with SAM2 masks: ${scene.objects.filter(obj => obj.mask_url).length}`)
+        console.log(`Bounding box fallbacks: ${scene.objects.filter(obj => !obj.mask_url).length}`)
         
-        initialScene.objects.forEach((obj, idx) => {
+        scene.objects.forEach((obj, idx) => {
           console.log(`Object ${idx + 1}: ${obj.category} - ${obj.mask_url ? '✅ SAM2 mask' : '⚠️ Bbox only'}`)
           if (obj.mask_url) {
             console.log(`  Mask URL: ${obj.mask_url}`)
@@ -44,7 +41,7 @@ export function SceneDetail() {
         console.log('Scene loaded but no objects array found')
       }
     }
-  }, [initialScene])
+  }, [scene])
 
   const firstUnreviewedIndex = useMemo(() => {
     if (!localScene?.objects?.length) return 0

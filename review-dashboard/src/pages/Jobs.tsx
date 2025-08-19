@@ -32,7 +32,8 @@ async function fetchActiveJobs(): Promise<Job[]> {
 const API_BASE = 'https://ovalay-recruitment-production.up.railway.app'
 
 async function generateMapsBatch(limit: number = 10, mapTypes: string[] = ['depth', 'edge'], forceRegenerate: boolean = false) {
-  const response = await fetch(`${API_BASE}/generate-maps/batch?limit=${limit}&map_types=${mapTypes.join(',')}&force_regenerate=${forceRegenerate}`, {
+  const mapTypesQuery = mapTypes.map(type => `map_types=${type}`).join('&')
+  const response = await fetch(`${API_BASE}/generate-maps/batch?limit=${limit}&${mapTypesQuery}&force_regenerate=${forceRegenerate}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -235,7 +236,7 @@ export function Jobs() {
   }
 
   const getJobTypeIcon = (message: string, jobType?: string) => {
-    const msgLower = message.toLowerCase()
+    const msgLower = (message || '').toLowerCase()
     const typeStr = (jobType || '').toLowerCase()
     
     if (typeStr === 'import' || msgLower.includes('dataset') || msgLower.includes('import')) return <Database className="h-5 w-5" />

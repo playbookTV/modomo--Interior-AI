@@ -47,7 +47,8 @@ except Exception as e:
 try:
     from routers_simple.admin import router as admin_router
     from routers_simple.analytics import router as analytics_router
-    logger.info("✅ Using simplified routers")
+    from routers.sync_monitor import sync_router  # Add sync monitoring
+    logger.info("✅ Using simplified routers with sync monitoring")
 except ImportError:
     # Fallback to original routers if simple ones don't exist
     logger.warning("⚠️ Simplified routers not found, creating minimal routes")
@@ -56,6 +57,18 @@ except ImportError:
     # Create minimal routers
     admin_router = APIRouter(prefix="/admin", tags=["admin"])
     analytics_router = APIRouter(tags=["analytics"])
+    
+    # Create sync monitoring router as fallback
+    try:
+        from routers.sync_monitor import sync_router
+        logger.info("✅ Sync monitoring router loaded as fallback")
+    except ImportError:
+        # Create minimal sync router if sync_monitor doesn't exist
+        sync_router = APIRouter(prefix="/sync", tags=["synchronization"])
+        @sync_router.get("/status")
+        async def fallback_sync_status():
+            return {"status": "fallback", "message": "Sync monitoring not fully available"}
+        logger.warning("⚠️ Using fallback sync router")
     
     @admin_router.get("/test-supabase")
     async def test_supabase():
@@ -1082,6 +1095,29 @@ async def retry_job(job_id: str):
                 image_url = parameters.get("image_url")
                 scene_id = parameters.get("scene_id")
                 
+                # Try to get missing parameters from job_id if it's a compound ID
+                if not image_url or not scene_id:
+                    logger.info(f"🔍 Missing parameters for detection job, trying to recover from database")
+                    
+                    # Extract scene_id from compound job ID if possible
+                    if "_detection_" in job_id and not scene_id:
+                        potential_scene_id = job_id.split("_detection_")[-1]
+                        logger.info(f"🔍 Extracted potential scene_id: {potential_scene_id}")
+                        
+                        # Try to get scene data from database
+                        try:
+                            scene_result = _database_service.supabase.table("scenes").select(
+                                "scene_id, image_url"
+                            ).eq("scene_id", potential_scene_id).execute()
+                            
+                            if scene_result.data:
+                                scene_data = scene_result.data[0]
+                                scene_id = scene_data["scene_id"]
+                                image_url = scene_data["image_url"]
+                                logger.info(f"✅ Recovered parameters: scene_id={scene_id}, image_url exists={bool(image_url)}")
+                        except Exception as recovery_error:
+                            logger.warning(f"⚠️ Could not recover parameters from database: {recovery_error}")
+                
                 if image_url and scene_id:
                     logger.info(f"🔄 Retrying detection job: scene_id={scene_id}")
                     run_detection_pipeline.apply_async(
@@ -1138,7 +1174,10 @@ async def retry_job(job_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to retry job: {str(e)}")
 
 
-@jobs_router.post("/retry-pending")
+@jobs_router.post("/retry-pending", 
+                 summary="Retry Pending Jobs",
+                 description="Retry jobs that are stuck in pending status",
+                 response_description="Details of retried jobs")
 async def retry_pending_jobs(
     job_type: str = Query(None, description="Filter by job type"),
     older_than_hours: int = Query(1, description="Retry jobs older than X hours"),
@@ -1767,22 +1806,91 @@ review_router = APIRouter(prefix="/review", tags=["review"])
 
 @review_router.get("/queue")
 async def get_review_queue(limit: int = Query(10, description="Number of scenes to return")):
-    """Get scenes ready for review"""
+    """Get scenes ready for review with their detected objects"""
     try:
         if not _database_service:
             raise HTTPException(status_code=503, detail="Database service not available")
         
-        # Get scenes with pending_review status
-        scenes = await _database_service.get_scenes(limit=limit, offset=0, status="pending_review")
+        # Get scenes that have detected objects and are ready for review
+        # Look for scenes with any status - we'll filter by having detected objects instead
+        scenes_result = _database_service.supabase.table("scenes").select(
+            "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at, metadata"
+        ).order("created_at", desc=True).limit(limit * 3).execute()  # Get more to filter down
+        
+        # Enhance each scene with its detected objects
+        enhanced_scenes = []
+        for scene in scenes_result.data or []:
+            # Get detected objects for this scene
+            objects_result = _database_service.supabase.table("detected_objects").select(
+                "object_id, category, confidence, bbox, tags, mask_url, mask_r2_key, matched_product_id, approved, metadata"
+            ).eq("scene_id", scene["scene_id"]).execute()
+            
+            # Only include scenes that have detected objects
+            if objects_result.data and len(objects_result.data) > 0:
+                scene_dict = dict(scene)
+                scene_dict["objects"] = objects_result.data
+                scene_dict["object_count"] = len(objects_result.data)
+                # DEBUG: Add classification data if available in metadata
+                if scene.get("metadata"):
+                    scene_dict["image_type"] = scene["metadata"].get("image_type")
+                    scene_dict["is_primary_object"] = scene["metadata"].get("is_primary_object", False)
+                    scene_dict["primary_category"] = scene["metadata"].get("primary_category")
+                    scene_dict["classification_confidence"] = scene["metadata"].get("classification_confidence")
+                    scene_dict["classification_reason"] = scene["metadata"].get("classification_reason")
+                
+                logger.info(f"🔍 Scene {scene['scene_id']}: Added {len(objects_result.data)} objects to response")
+                enhanced_scenes.append(scene_dict)
+            else:
+                logger.info(f"⚠️ Scene {scene['scene_id']}: No objects found")
+        
+        logger.info(f"🔍 Review queue: Found {len(scenes_result.data or [])} total scenes, {len(enhanced_scenes)} with objects")
         
         return {
-            "scenes": scenes.get("scenes", []),
-            "total": scenes.get("total", 0),
-            "limit": limit
+            "scenes": enhanced_scenes,
+            "total": len(enhanced_scenes),
+            "limit": limit,
+            "debug": {
+                "total_scenes_checked": len(scenes_result.data or []),
+                "scenes_with_objects": len(enhanced_scenes),
+                "sample_scene_statuses": [s.get("status") for s in (scenes_result.data or [])[:3]]
+            }
         }
     except Exception as e:
         logger.error(f"❌ Review queue error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get review queue: {str(e)}")
+
+@review_router.get("/scene/{scene_id}")
+async def get_scene_for_review(scene_id: str):
+    """Get a specific scene with all its detected objects for review"""
+    try:
+        if not _database_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Get scene details
+        scene_result = _database_service.supabase.table("scenes").select(
+            "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at, metadata"
+        ).eq("scene_id", scene_id).execute()
+        
+        if not scene_result.data:
+            raise HTTPException(status_code=404, detail="Scene not found")
+        
+        scene = dict(scene_result.data[0])
+        
+        # Get detected objects for this scene
+        objects_result = _database_service.supabase.table("detected_objects").select(
+            "object_id, category, confidence, bbox, tags, mask_url, mask_r2_key, matched_product_id, approved, metadata"
+        ).eq("scene_id", scene_id).execute()
+        
+        scene["objects"] = objects_result.data or []
+        scene["object_count"] = len(objects_result.data or [])
+        
+        return scene
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Get scene for review error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get scene for review: {str(e)}")
 
 @review_router.post("/approve/{scene_id}")
 async def approve_scene(scene_id: str):
@@ -2132,24 +2240,43 @@ async def shutdown():
 # Custom static file handler for masks with CORS headers
 @app.get("/masks/{filename}")
 async def serve_mask(filename: str):
-    """Serve mask files with CORS headers"""
-    file_path = os.path.join(settings.MASKS_DIR, filename)
-    
-    if not os.path.exists(file_path):
+    """Serve mask files directly from R2 storage"""
+    try:
+        from fastapi.responses import RedirectResponse
+        
+        # Construct R2 URL for the mask
+        r2_key = f"masks/{filename}"
+        
+        # Get R2 client and generate presigned URL
+        if _r2_client:
+            try:
+                # Generate a presigned URL that's valid for 1 hour
+                presigned_url = _r2_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': settings.R2_BUCKET_NAME, 'Key': r2_key},
+                    ExpiresIn=3600  # 1 hour
+                )
+                
+                # Redirect to the presigned URL
+                return RedirectResponse(
+                    url=presigned_url,
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, OPTIONS",
+                        "Access-Control-Allow-Headers": "*",
+                        "Cache-Control": "public, max-age=3600"
+                    }
+                )
+            except Exception as e:
+                logger.error(f"❌ Failed to generate presigned URL for {r2_key}: {e}")
+                raise HTTPException(status_code=404, detail="Mask file not found in R2")
+        else:
+            logger.error("❌ R2 client not available")
+            raise HTTPException(status_code=503, detail="R2 storage not available")
+            
+    except Exception as e:
+        logger.error(f"❌ Error serving mask {filename}: {e}")
         raise HTTPException(status_code=404, detail="Mask file not found")
-    
-    # Return file with CORS headers
-    response = FileResponse(
-        file_path,
-        media_type="image/png",
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
-        }
-    )
-    return response
 
 
 @app.options("/masks/{filename}")
@@ -2606,6 +2733,7 @@ app.include_router(detection_router)
 app.include_router(jobs_router)
 app.include_router(scraping_router)
 app.include_router(review_router)
+app.include_router(sync_router)  # Add sync monitoring router
 
 
 if __name__ == "__main__":

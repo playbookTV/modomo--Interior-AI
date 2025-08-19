@@ -92,11 +92,69 @@ export const startDetection = async (sceneIds: string[]): Promise<{ job_id: stri
 // Review queue
 export const getReviewQueue = async (params: {
   limit?: number
+  offset?: number
   room_type?: string
   category?: string
-}): Promise<Scene[]> => {
+  status?: string
+  search?: string
+  image_type?: string
+  has_masks?: boolean
+  order_by?: string
+  order_dir?: string
+}): Promise<{
+  scenes: Scene[]
+  pagination: {
+    total: number
+    limit: number
+    offset: number
+    has_more: boolean
+    current_page: number
+    total_pages: number
+  }
+  filters_applied: any
+  debug: any
+}> => {
   const response = await apiClient.get('/review/queue', { params })
-  return response.data.scenes || response.data
+  // Handle both old and new response formats
+  if (Array.isArray(response.data)) {
+    // Old format - just scenes array
+    return {
+      scenes: response.data,
+      pagination: {
+        total: response.data.length,
+        limit: params.limit || 20,
+        offset: params.offset || 0,
+        has_more: false,
+        current_page: 1,
+        total_pages: 1
+      },
+      filters_applied: {},
+      debug: {}
+    }
+  } else if (response.data.scenes && !response.data.pagination) {
+    // Intermediate format - has scenes and debug but no pagination
+    return {
+      scenes: response.data.scenes || [],
+      pagination: {
+        total: response.data.total || response.data.scenes?.length || 0,
+        limit: params.limit || 20,
+        offset: params.offset || 0,
+        has_more: false,
+        current_page: 1,
+        total_pages: 1
+      },
+      filters_applied: {},
+      debug: response.data.debug || {}
+    }
+  } else {
+    // New format - object with scenes and pagination
+    return response.data
+  }
+}
+
+export const getSceneForReview = async (sceneId: string): Promise<Scene> => {
+  const response = await apiClient.get(`/review/scene/${sceneId}`)
+  return response.data
 }
 
 export const updateReview = async (updates: ReviewUpdate[]): Promise<{ status: string; count: number }> => {

@@ -126,7 +126,8 @@ class DatabaseService:
         offset: int = 0,
         status: Optional[str] = None,
         image_type: Optional[str] = None,
-        room_type: Optional[str] = None
+        room_type: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get scenes with pagination, filtering, and classification metadata"""
         try:
@@ -143,6 +144,16 @@ class DatabaseService:
             if room_type:
                 query = query.eq("room_type", room_type)
             
+            # Add dynamic filters
+            if filters:
+                for field, value in filters.items():
+                    if value is None:
+                        # Filter for NULL values
+                        query = query.is_(field, "null")
+                    else:
+                        # Filter for specific values
+                        query = query.eq(field, value)
+            
             # Execute query with pagination
             result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
             
@@ -154,6 +165,16 @@ class DatabaseService:
                 count_query = count_query.eq("image_type", image_type)
             if room_type:
                 count_query = count_query.eq("room_type", room_type)
+            
+            # Add dynamic filters to count query
+            if filters:
+                for field, value in filters.items():
+                    if value is None:
+                        # Filter for NULL values
+                        count_query = count_query.is_(field, "null")
+                    else:
+                        # Filter for specific values
+                        count_query = count_query.eq(field, value)
             count_result = count_query.execute()
             total = count_result.count if count_result.count else 0
             

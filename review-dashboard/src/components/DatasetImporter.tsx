@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Play, Loader2, Database, Sparkles, AlertTriangle, Eye, CheckCircle, Clock, 
@@ -165,7 +165,11 @@ export function DatasetImporter() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
   // Toast management functions
-  const addToast = (toast: Omit<Toast, 'id'>) => {
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }, [])
+
+  const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = Date.now().toString()
     const newToast = { ...toast, id }
     setToasts(prev => [...prev, newToast])
@@ -175,11 +179,7 @@ export function DatasetImporter() {
     if (duration > 0) {
       setTimeout(() => removeToast(id), duration)
     }
-  }
-
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id))
-  }
+  }, [removeToast])
 
   const queryClient = useQueryClient()
 
@@ -258,7 +258,7 @@ export function DatasetImporter() {
         refetchErrors()
       }
     }
-  }, [currentJobProgress, lastJob?.dataset, addToast, setIsMonitoring, refetchStats, refetchScenes, queryClient, refetchErrors])
+  }, [currentJobProgress, lastJob?.dataset, addToast, refetchStats, refetchScenes, queryClient, refetchErrors])
 
   // Gallery data for processed images
   const { data: galleryData, isLoading: galleryLoading } = useQuery({
