@@ -156,24 +156,57 @@ import os.path
 
 @app.get("/masks/{filename}")
 async def serve_mask(filename: str):
-    """Serve mask files with CORS headers"""
-    file_path = os.path.join(masks_dir, filename)
-    
-    if not os.path.exists(file_path):
+    """Serve mask files by redirecting to R2 public URL"""
+    try:
+        # Construct direct R2 public URL (if R2 bucket is public)
+        # Format: https://<account-id>.r2.cloudflarestorage.com/<bucket>/<key>
+        r2_key = f"masks/{filename}"
+        
+        # Use public R2 URL if available, otherwise generate presigned URL
+        if r2_client and r2_bucket_name:
+            try:
+                # Try to generate presigned URL as fallback
+                presigned_url = r2_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': r2_bucket_name, 'Key': r2_key},
+                    ExpiresIn=3600  # 1 hour
+                )
+                
+                # Redirect to the presigned URL
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(
+                    url=presigned_url,
+                    status_code=302,
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, OPTIONS",
+                        "Access-Control-Allow-Headers": "*",
+                        "Cache-Control": "public, max-age=3600"
+                    }
+                )
+            except Exception as e:
+                print(f"❌ Failed to generate presigned URL for {r2_key}: {e}")
+                
+                # Try direct public URL as fallback
+                # This works if the R2 bucket has public read access
+                public_url = f"https://pub-<account-id>.r2.dev/{r2_key}"
+                return RedirectResponse(
+                    url=public_url,
+                    status_code=302,
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, OPTIONS", 
+                        "Access-Control-Allow-Headers": "*",
+                        "Cache-Control": "public, max-age=3600"
+                    }
+                )
+        else:
+            print("❌ R2 client not available")
+            raise HTTPException(status_code=503, detail="R2 storage not available")
+            
+    except Exception as e:
+        print(f"❌ Error serving mask {filename}: {e}")
         raise HTTPException(status_code=404, detail="Mask file not found")
-    
-    # Return file with CORS headers
-    response = FileResponse(
-        file_path,
-        media_type="image/png",
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
-        }
-    )
-    return response
 
 # Handle OPTIONS preflight requests for masks
 @app.options("/masks/{filename}")
@@ -188,6 +221,106 @@ async def mask_options(filename: str):
             "Access-Control-Allow-Headers": "*",
         }
     )
+
+@app.get("/admin/migrate-cache-to-r2")
+async def migrate_cache_to_r2():
+    """Migrate all cached files (masks, maps) from local storage to R2"""
+    try:
+        if not r2_client:
+            return {"error": "R2 client not available", "status": "failed"}
+        
+        migration_results = {
+            "masks": {"uploaded": 0, "skipped": 0, "errors": []},
+            "maps": {"uploaded": 0, "skipped": 0, "errors": []},
+            "total_processed": 0,
+            "status": "in_progress"
+        }
+        
+        # Define cache directories to migrate
+        cache_dirs = [
+            ("/app/cache_volume/masks", "masks"),
+            ("/app/cache_volume/maps", "training-data/maps"),
+            ("/app/cache_volume/depth_maps", "training-data/maps"),
+            ("/app/cache_volume/edge_maps", "training-data/maps"),
+        ]
+        
+        for local_dir, r2_prefix in cache_dirs:
+            if not os.path.exists(local_dir):
+                print(f"⚠️ Directory {local_dir} does not exist, skipping...")
+                continue
+            
+            print(f"🔍 Scanning {local_dir} for files to migrate...")
+            
+            for root, dirs, files in os.walk(local_dir):
+                for file in files:
+                    if file.startswith('.'):  # Skip hidden files
+                        continue
+                        
+                    local_file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(local_file_path, local_dir)
+                    r2_key = f"{r2_prefix}/{relative_path}".replace("\", "/")  # Ensure forward slashes
+                    
+                    try:
+                        # Check if file already exists in R2
+                        try:
+                            r2_client.head_object(Bucket=r2_bucket_name, Key=r2_key)
+                            # File exists, skip
+                            if "masks" in r2_prefix:
+                                migration_results["masks"]["skipped"] += 1
+                            else:
+                                migration_results["maps"]["skipped"] += 1
+                            print(f"⏭️ Skipping {r2_key} (already exists)")
+                            continue
+                        except r2_client.exceptions.NoSuchKey:
+                            # File doesn't exist, proceed with upload
+                            pass
+                        
+                        # Upload file to R2
+                        with open(local_file_path, 'rb') as f:
+                            # Determine content type
+                            content_type = "application/octet-stream"
+                            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                                content_type = f"image/{file.split('.')[-1].lower()}"
+                            elif file.lower().endswith('.json'):
+                                content_type = "application/json"
+                            
+                            r2_client.upload_fileobj(
+                                f,
+                                r2_bucket_name,
+                                r2_key,
+                                ExtraArgs={
+                                    'ContentType': content_type,
+                                    'ACL': 'public-read'
+                                }
+                            )
+                        
+                        if "masks" in r2_prefix:
+                            migration_results["masks"]["uploaded"] += 1
+                        else:
+                            migration_results["maps"]["uploaded"] += 1
+                        
+                        migration_results["total_processed"] += 1
+                        print(f"✅ Uploaded {local_file_path} → {r2_key}")
+                        
+                    except Exception as e:
+                        error_msg = f"Failed to upload {local_file_path}: {str(e)}"
+                        if "masks" in r2_prefix:
+                            migration_results["masks"]["errors"].append(error_msg)
+                        else:
+                            migration_results["maps"]["errors"].append(error_msg)
+                        print(f"❌ {error_msg}")
+        
+        migration_results["status"] = "completed"
+        migration_results["summary"] = f"Processed {migration_results['total_processed']} files"
+        
+        return migration_results
+        
+    except Exception as e:
+        return {
+            "error": f"Migration failed: {str(e)}",
+            "status": "failed",
+            "results": migration_results
+        }
 
 # Global instances
 supabase: Client = None
@@ -2995,9 +3128,16 @@ async def run_full_scraping_pipeline(job_id: str, limit: int, room_types: Option
 # Review endpoints for object validation
 @app.get("/review/queue")
 async def get_review_queue(
-    limit: int = Query(10, description="Maximum number of scenes to return"),
+    limit: int = Query(20, description="Maximum number of scenes to return"),
+    offset: int = Query(0, description="Number of scenes to skip for pagination"),
     room_type: str = Query(None, description="Filter by room type"),
-    category: str = Query(None, description="Filter by object category")
+    category: str = Query(None, description="Filter by object category"),
+    status: str = Query(None, description="Filter by scene status"),
+    search: str = Query(None, description="Search in houzz_id or scene_id"),
+    image_type: str = Query(None, description="Filter by image type (scene/object)"),
+    has_masks: bool = Query(None, description="Filter scenes that have SAM2 masks"),
+    order_by: str = Query("created_at", description="Order by field (created_at, object_count, room_type)"),
+    order_dir: str = Query("desc", description="Order direction (asc/desc)")
 ):
     """Get scenes pending review with detected objects
     
@@ -3013,72 +3153,113 @@ async def get_review_queue(
                 "note": "Database connection not available"
             }
         
-        # Build query for scenes with objects needing review
-        # First get scenes that have detected objects AND are not already completed (approved OR rejected)
-        query = supabase.table("scenes").select("""
-            scene_id, houzz_id, image_url, room_type, style_tags, status,
-            detected_objects(
-                object_id, bbox, category, confidence, tags, 
-                approved, matched_product_id, metadata, mask_r2_key, mask_url
-            )
-        """).not_.in_("status", ["approved", "rejected"])
+        # Build the base query with advanced filtering
+        query = supabase.table("scenes").select(
+            "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at, metadata",
+            count="exact"  # Get total count for pagination
+        )
         
-        # Add filters
+        # Apply filters
         if room_type:
             query = query.eq("room_type", room_type)
         
-        # Execute query and filter for scenes with unapproved objects
-        result = query.order("created_at", desc=True).limit(limit * 3).execute()  # Get more to filter later
+        if status:
+            query = query.eq("status", status)
+        else:
+            # Default: exclude completed scenes unless specifically requested
+            query = query.not_.in_("status", ["approved", "rejected"])
         
-        if not result.data:
-            return {
-                "scenes": [],
-                "total": 0,
-                "note": "No scenes found for review"
-            }
+        if search:
+            # Search in houzz_id or scene_id
+            query = query.or_(f"houzz_id.ilike.%{search}%,scene_id.ilike.%{search}%")
         
-        # Format scenes with objects that need review
-        scenes = []
-        for scene_data in result.data:
-            # Skip scenes that are already completed (approved OR rejected) at the scene level
-            scene_status = scene_data.get("status", "")
-            if scene_status in ["approved", "rejected"]:
-                continue
-                
-            detected_objects = scene_data.get("detected_objects", [])
+        if image_type:
+            query = query.eq("metadata->>image_type", image_type)
+        
+        # Apply ordering
+        order_field = order_by if order_by in ["created_at", "room_type", "status"] else "created_at"
+        order_direction = order_dir.lower() == "asc"
+        query = query.order(order_field, desc=not order_direction)
+        
+        # Get total count for pagination
+        count_result = query.execute()
+        total_scenes = len(count_result.data or [])
+        
+        # Apply pagination
+        scenes_result = query.range(offset, offset + limit - 1).execute()
+        
+        # Enhance each scene with its detected objects and apply additional filters
+        enhanced_scenes = []
+        for scene in scenes_result.data or []:
+            # Get detected objects for this scene
+            objects_query = supabase.table("detected_objects").select(
+                "object_id, category, confidence, bbox, tags, mask_url, mask_r2_key, matched_product_id, approved, metadata"
+            ).eq("scene_id", scene["scene_id"])
             
-            # Filter for objects that need review (approved is null or missing)
-            objects_needing_review = []
-            for obj in detected_objects:
-                approved_status = obj.get("approved")
-                # Include objects where approved is null, None, or missing
-                needs_review = approved_status is None
-                
-                # Apply category filter if specified
-                if category and obj.get("category") != category:
+            # Apply category filter to objects if specified
+            if category:
+                objects_query = objects_query.eq("category", category)
+            
+            objects_result = objects_query.execute()
+            
+            # Include ALL scenes - even those without detected objects (they need review/processing too!)
+            # Only skip scenes without objects if specifically filtering by category
+            if category and (not objects_result.data or len(objects_result.data) == 0):
+                continue  # Skip only when filtering by specific category and no objects match
+            
+            scene_dict = dict(scene)
+            scene_dict["objects"] = objects_result.data or []
+            scene_dict["object_count"] = len(objects_result.data or [])
+            
+            # Add classification data if available in metadata
+            if scene.get("metadata"):
+                scene_dict["image_type"] = scene["metadata"].get("image_type")
+                scene_dict["is_primary_object"] = scene["metadata"].get("is_primary_object", False)
+                scene_dict["primary_category"] = scene["metadata"].get("primary_category")
+                scene_dict["classification_confidence"] = scene["metadata"].get("classification_confidence")
+                scene_dict["classification_reason"] = scene["metadata"].get("classification_reason")
+            
+            # Apply has_masks filter
+            if has_masks is not None:
+                objects_with_masks = [obj for obj in scene_dict["objects"] if obj.get("mask_url")]
+                scene_has_masks = len(objects_with_masks) > 0
+                if has_masks and not scene_has_masks:
                     continue
-                    
-                if needs_review:
-                    objects_needing_review.append(obj)
+                if not has_masks and scene_has_masks:
+                    continue
+                scene_dict["masks_count"] = len(objects_with_masks)
             
-            # Only include scenes that have objects needing review
-            if objects_needing_review:
-                scene = {
-                    "scene_id": scene_data["scene_id"],
-                    "houzz_id": scene_data.get("houzz_id"),
-                    "image_url": scene_data["image_url"],
-                    "room_type": scene_data.get("room_type"),
-                    "style_tags": scene_data.get("style_tags", []),
-                    "objects": objects_needing_review
-                }
-                scenes.append(scene)
-                
-                # Stop when we have enough scenes
-                if len(scenes) >= limit:
-                    break
+            enhanced_scenes.append(scene_dict)
         
-        # Return just the scenes array to match frontend expectations  
-        return scenes[:limit]
+        # Calculate pagination info
+        has_more = (offset + len(enhanced_scenes)) < total_scenes
+        
+        return {
+            "scenes": enhanced_scenes,
+            "pagination": {
+                "total": total_scenes,
+                "limit": limit,
+                "offset": offset,
+                "has_more": has_more,
+                "current_page": (offset // limit) + 1,
+                "total_pages": (total_scenes + limit - 1) // limit
+            },
+            "filters_applied": {
+                "room_type": room_type,
+                "category": category,
+                "status": status,
+                "search": search,
+                "image_type": image_type,
+                "has_masks": has_masks,
+                "order_by": f"{order_field} {order_dir}"
+            },
+            "debug": {
+                "total_scenes_in_db": total_scenes,
+                "scenes_after_filters": len(enhanced_scenes),
+                "query_offset": offset,
+                "query_limit": limit
+            }
+        }
         
     except Exception as e:
         logger.error(f"Review queue failed: {e}")
