@@ -1,6 +1,6 @@
 """
-Modomo Dataset Scraping System - Refactored Main Application
-Clean modular architecture with proper separation of concerns and dependency injection
+Modomo Dataset Scraping System - Clean Refactored Main Application
+Modular architecture with proper separation of concerns and dependency injection
 """
 from core.app_factory import create_complete_app
 from core.dependencies import check_services_ready
@@ -16,7 +16,7 @@ app = create_complete_app()
 async def startup_event():
     """Log application startup status"""
     services = check_services_ready()
-    logger.info("🚀 Modomo Dataset Scraping System - Refactored Architecture")
+    logger.info("🚀 Modomo Dataset Scraping System - Clean Architecture")
     logger.info(f"📊 Services Status: {services}")
     
     ready_services = sum(1 for status in services.values() if status)
@@ -26,9 +26,9 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("🚀 Starting Modomo Dataset Scraping System - Refactored Architecture")
+    logger.info("🚀 Starting Modomo Dataset Scraping System - Clean Architecture")
     uvicorn.run(
-        "main_refactored:app",
+        "main_clean:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
