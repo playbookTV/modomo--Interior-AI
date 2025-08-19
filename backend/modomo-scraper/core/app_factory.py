@@ -118,7 +118,17 @@ def initialize_services() -> dict:
             bucket_name = getattr(settings, 'R2_BUCKET_NAME', 'reroom')
             r2_client.list_objects_v2(Bucket=bucket_name, MaxKeys=1)
             
-            set_r2_client(r2_client)
+            set_r2_client(r2_client, bucket_name)
+            
+            # Also set R2 client for mask and admin endpoints
+            try:
+                from routers.mask_endpoints import set_r2_client as set_mask_r2_client
+                from routers.admin_utilities import set_r2_client as set_admin_r2_client
+                set_mask_r2_client(r2_client, bucket_name)
+                set_admin_r2_client(r2_client, bucket_name)
+            except ImportError:
+                # Endpoints not yet imported, will be set later
+                pass
             services_status["r2_storage"] = "initialized"
             logger.info(f"✅ R2 client initialized (bucket: {bucket_name})")
         else:
@@ -174,11 +184,31 @@ def register_routers(app: FastAPI):
         from routers.color_endpoints import register_color_routes
         from routers.review_endpoints import register_review_routes
         from routers.dataset_endpoints import register_dataset_routes
-        from routers.static_endpoints import register_static_routes
+        from routers.mask_endpoints import register_mask_routes
+        from routers.advanced_ai_endpoints import register_advanced_ai_routes
+        from routers.admin_utilities import register_admin_utilities
+        
         register_color_routes(app)
         register_review_routes(app)
         register_dataset_routes(app)
-        register_static_routes(app)
+        register_mask_routes(app)
+        register_advanced_ai_routes(app)
+        register_admin_utilities(app)
+        
+        # Set R2 clients for endpoints that need them
+        try:
+            from core.dependencies import get_r2_client, get_r2_bucket_name
+            r2_client = get_r2_client()
+            r2_bucket = get_r2_bucket_name()
+            
+            if r2_client:
+                from routers.mask_endpoints import set_r2_client as set_mask_r2_client
+                from routers.admin_utilities import set_r2_client as set_admin_r2_client
+                set_mask_r2_client(r2_client, r2_bucket)
+                set_admin_r2_client(r2_client, r2_bucket)
+                logger.info("✅ R2 client configured for mask and admin endpoints")
+        except ImportError as e:
+            logger.warning(f"⚠️ Could not configure R2 for endpoints: {e}")
         
     except Exception as e:
         logger.error(f"❌ Router registration failed: {e}")

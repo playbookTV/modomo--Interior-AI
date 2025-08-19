@@ -14,6 +14,7 @@ _database_service: Optional[DatabaseService] = None
 _job_service: Optional[JobService] = None
 _detection_service: Optional[DetectionService] = None
 _r2_client = None
+_r2_bucket_name = None
 
 
 def set_database_service(service: DatabaseService):
@@ -37,11 +38,12 @@ def set_detection_service(service: DetectionService):
     logger.info("✅ Detection service registered")
 
 
-def set_r2_client(client):
+def set_r2_client(client, bucket_name: str = None):
     """Set the global R2 client instance"""
-    global _r2_client
+    global _r2_client, _r2_bucket_name
     _r2_client = client
-    logger.info("✅ R2 client registered")
+    _r2_bucket_name = bucket_name or "reroom"
+    logger.info(f"✅ R2 client registered (bucket: {_r2_bucket_name})")
 
 
 # Dependency injection functions for FastAPI
@@ -63,6 +65,11 @@ def get_detection_service() -> Optional[DetectionService]:
 def get_r2_client():
     """Get R2 client instance for dependency injection"""
     return _r2_client
+
+
+def get_r2_bucket_name() -> str:
+    """Get R2 bucket name"""
+    return _r2_bucket_name
 
 
 def check_services_ready() -> dict:
