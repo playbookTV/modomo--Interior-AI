@@ -2070,6 +2070,7 @@ class DetectedObject(BaseModel):
 _database_service = None
 _job_service = None
 _detection_service = None
+_r2_client = None
 
 def get_database_service():
     """Get database service instance"""
@@ -2089,7 +2090,7 @@ async def startup():
     """Initialize all services and AI models"""
     global supabase_client, redis_client, database_service, job_service, detection_service
     global detector, segmenter, embedder, color_extractor
-    global _database_service, _job_service, _detection_service
+    global _database_service, _job_service, _detection_service, _r2_client
     
     try:
         logger.info("Starting Modomo Scraper (Refactored Architecture)")
@@ -2140,6 +2141,36 @@ async def startup():
             logger.info("Will continue without Redis - job tracking disabled")
             redis_client = None
             job_service = JobService(None)  # Create service without Redis
+        
+        # Initialize R2 client for mask storage
+        logger.info("☁️ Initializing R2 storage client...")
+        try:
+            import boto3
+            
+            if settings.R2_ENDPOINT and settings.R2_ACCESS_KEY_ID and settings.R2_SECRET_ACCESS_KEY:
+                _r2_client = boto3.client(
+                    's3',
+                    endpoint_url=settings.R2_ENDPOINT,
+                    aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+                    region_name='auto'
+                )
+                
+                # Test R2 connection
+                _r2_client.list_objects_v2(Bucket=settings.R2_BUCKET_NAME, MaxKeys=1)
+                logger.info(f"✅ R2 client initialized successfully (bucket: {settings.R2_BUCKET_NAME})")
+            else:
+                missing_r2 = []
+                if not settings.R2_ENDPOINT: missing_r2.append("R2_ENDPOINT")
+                if not settings.R2_ACCESS_KEY_ID: missing_r2.append("R2_ACCESS_KEY_ID") 
+                if not settings.R2_SECRET_ACCESS_KEY: missing_r2.append("R2_SECRET_ACCESS_KEY")
+                
+                logger.warning(f"❌ R2 credentials missing ({', '.join(missing_r2)}) - mask serving will fail")
+                _r2_client = None
+                
+        except Exception as r2_error:
+            logger.error(f"❌ R2 client initialization failed: {r2_error}")
+            _r2_client = None
         
         # Initialize AI models
         logger.info("🤖 Loading AI models...")
