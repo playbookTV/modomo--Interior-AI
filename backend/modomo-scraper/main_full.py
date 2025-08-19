@@ -136,6 +136,17 @@ app = FastAPI(
     version="1.0.2-full"
 )
 
+# Global variables for services
+supabase = None
+db_pool = None
+redis_client = None
+detector = None
+segmenter = None
+embedder = None
+color_extractor = None
+r2_client = None
+r2_bucket_name = None
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -436,7 +447,7 @@ class DetectedObject(BaseModel):
 # Startup/shutdown events
 @app.on_event("startup")
 async def startup():
-    global supabase, db_pool, redis_client, detector, segmenter, embedder, color_extractor
+    global supabase, db_pool, redis_client, detector, segmenter, embedder, color_extractor, r2_client, r2_bucket_name
     
     try:
         logger.info("Starting Modomo Scraper (Full AI Mode)")
@@ -481,6 +492,42 @@ async def startup():
             logger.warning(f"Redis connection failed: {redis_error}")
             logger.info("Will continue without Redis - job tracking disabled")
             redis_client = None
+        
+        # Initialize R2 client for mask storage
+        logger.info("☁️ Initializing R2 storage client...")
+        try:
+            import boto3
+            r2_endpoint = os.getenv('CLOUDFLARE_R2_ENDPOINT')
+            r2_access_key = os.getenv('CLOUDFLARE_R2_ACCESS_KEY_ID')
+            r2_secret_key = os.getenv('CLOUDFLARE_R2_SECRET_ACCESS_KEY')
+            r2_bucket_name = os.getenv('CLOUDFLARE_R2_BUCKET', 'reroom')
+            
+            if r2_endpoint and r2_access_key and r2_secret_key:
+                r2_client = boto3.client(
+                    's3',
+                    endpoint_url=r2_endpoint,
+                    aws_access_key_id=r2_access_key,
+                    aws_secret_access_key=r2_secret_key,
+                    region_name='auto'
+                )
+                
+                # Test R2 connection
+                r2_client.list_objects_v2(Bucket=r2_bucket_name, MaxKeys=1)
+                logger.info(f"✅ R2 client initialized successfully (bucket: {r2_bucket_name})")
+            else:
+                missing_r2 = []
+                if not r2_endpoint: missing_r2.append("CLOUDFLARE_R2_ENDPOINT")
+                if not r2_access_key: missing_r2.append("CLOUDFLARE_R2_ACCESS_KEY_ID") 
+                if not r2_secret_key: missing_r2.append("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+                
+                logger.warning(f"❌ R2 credentials missing ({', '.join(missing_r2)}) - mask serving will fail")
+                r2_client = None
+                r2_bucket_name = None
+                
+        except Exception as r2_error:
+            logger.error(f"❌ R2 client initialization failed: {r2_error}")
+            r2_client = None
+            r2_bucket_name = None
         
         # Initialize color extractor first (has minimal dependencies)
         logger.info("🎨 Loading color extractor...")
