@@ -1,0 +1,105 @@
+# Multi-stage build for Railway with persistent model caching
+# Stage 1: Model downloader (cached separately)
+FROM python:3.11-slim as model-downloader
+
+# Install minimal dependencies for model downloads
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install only packages needed for model downloads
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir transformers huggingface-hub sentence-transformers
+
+# Download and cache models to a known location
+RUN mkdir -p /app/model_cache
+
+# Download core models (these will be cached in Docker layer)
+RUN python -c "
+import torch
+from transformers import CLIPModel, CLIPProcessor
+from sentence_transformers import SentenceTransformer
+
+print('Downloading CLIP model...')
+model = CLIPModel.from_pretrained('openai/clip-vit-base-patch32', cache_dir='/app/model_cache/clip')
+processor = CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32', cache_dir='/app/model_cache/clip')
+
+print('Downloading sentence transformer...')
+st_model = SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/model_cache/sentence_transformers')
+
+print('Models cached successfully!')
+"
+
+# Stage 2: Production runtime
+FROM python:3.11-slim as runtime
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget git gcc g++ build-essential \
+    libgl1-mesa-dev libglu1-mesa-dev libglx-mesa0 mesa-common-dev \
+    libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 \
+    libnspr4 libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 \
+    libxrandr2 libgbm1 libcairo2 libpango-1.0-0 libasound2 libgtk-3-0 \
+    fonts-liberation fonts-unifont libgdk-pixbuf-2.0-0 libjpeg62-turbo xvfb \
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
+
+WORKDIR /app
+
+# Copy cached models from stage 1
+COPY --from=model-downloader /app/model_cache /app/model_cache_base
+
+# Environment setup
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_MODE=full
+
+# Copy requirements and install dependencies
+COPY requirements-railway-complete.txt ./
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements-railway-complete.txt
+
+# Install AI models (SAM2 and CLIP from git)
+RUN pip install --no-cache-dir git+https://github.com/facebookresearch/segment-anything-2.git && \
+    pip install --no-cache-dir git+https://github.com/openai/CLIP.git && \
+    pip install --no-cache-dir iopath hydra-core omegaconf
+
+# Install Playwright browsers
+RUN python -m playwright install chromium || echo "⚠️ Playwright install failed, will retry at runtime"
+
+# Create directories for Railway volumes and temp files
+RUN mkdir -p /app/temp /app/downloads /app/checkpoints \
+    /app/models /app/cache_volume
+
+# Copy application code (this layer changes most frequently)
+COPY . .
+
+# Copy models source code
+COPY models/ /app/models_src/ 2>/dev/null || echo "No models source to copy"
+RUN cp -r /app/models_src/* /app/models/ 2>/dev/null || echo "No models to copy"
+
+# Set environment variables for model caching
+ENV PYTHONPATH=/app:/app/models:/app/models_src
+ENV CLASSIFICATION_ENHANCED=true
+ENV KEYWORD_SYSTEM_VERSION=2.0
+ENV MODEL_CACHE_DIR=/app/models
+ENV SAM2_CHECKPOINT_DIR=/app/models/sam2
+ENV CLIP_CACHE_DIR=/app/models/clip
+ENV YOLO_CACHE_DIR=/app/models/yolo
+ENV TRANSFORMERS_CACHE=/app/models/huggingface
+ENV HF_HOME=/app/models/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/models/sentence_transformers
+
+# Health check with longer startup time for model loading
+HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Startup script that copies cached models if volume is empty
+COPY docker-entrypoint.sh /app/
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["python", "main_railway.py"]

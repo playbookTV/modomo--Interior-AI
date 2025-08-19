@@ -1,0 +1,35 @@
+FROM python:3.11-slim
+
+# Minimal system dependencies for faster builds
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget git gcc g++ build-essential \
+    libgl1-mesa-dev libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_MODE=minimal
+
+# Copy and install minimal requirements
+COPY requirements-minimal.txt ./
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements-minimal.txt
+
+# Create basic directories
+RUN mkdir -p /app/temp /app/downloads
+
+# Copy application code
+COPY . .
+
+ENV PYTHONPATH=/app
+
+# Basic health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=2 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+CMD python main_railway.py

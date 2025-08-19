@@ -1,0 +1,53 @@
+# Optimization: Exclude unnecessary files from Docker context
+node_modules/
+*.pyc
+__pycache__/
+.git/
+.gitignore
+README.md
+*.md
+.env*
+.DS_Store
+Thumbs.db
+
+# Test files
+tests/
+*_test.py
+test_*.py
+
+# Development files
+.vscode/
+.idea/
+*.log
+logs/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Cache directories (these will be created in container)
+.cache/
+cache/
+model_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Documentation
+docs/
+documentation/
+
+# CI/CD files (not needed in container)
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# Alternative Dockerfiles (exclude unused ones)
+Dockerfile.minimal
+Dockerfile.optimized
+Dockerfile.cached
+build-docker.sh

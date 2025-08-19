@@ -1,18 +1,26 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.railway-optimized"
 
 [deploy]
 startCommand = "python main_railway.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
+# Increased timeout for initial model loading
+startupTimeout = 600
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 # Railway Volume Configuration for Model Persistence
+# This volume persists downloaded models across deployments
 [[deploy.volumes]]
 mountPath = "/app/models"
 name = "modomo-ai-models"
+
+# Additional cache volume for faster model loading
+[[deploy.volumes]]
+mountPath = "/app/cache_volume"
+name = "modomo-cache-volume"
 
 [env]
 # Production environment variables
@@ -28,8 +36,8 @@ PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
 # R2 Storage Configuration (set via Railway dashboard)
-# R2_BUCKET_NAME = "modomo-dataset"
-# R2_ENDPOINT_URL = "https://your-account-id.r2.cloudflarestorage.com"
-# R2_ACCESS_KEY_ID = "your-r2-access-key"
-# R2_SECRET_ACCESS_KEY = "your-r2-secret-key"
+# R2_BUCKET_NAME = "reroom"
+# R2_ENDPOINT_URL = "https://9bbdb3861142e65685d23f4955b88ebe.r2.cloudflarestorage.com"
+# R2_ACCESS_KEY_ID = "6c8abdff2cdad89323e36b258b1d0f4b"
+# R2_SECRET_ACCESS_KEY = "35b7b4a1f586211d407b246b54898d2e50d13562cba7e7be6293d4b6ccea06c5"
 # R2_REGION = "auto"
