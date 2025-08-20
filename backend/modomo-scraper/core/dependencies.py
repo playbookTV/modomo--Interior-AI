@@ -46,19 +46,19 @@ def set_r2_client(client, bucket_name: str = None):
     logger.info(f"✅ R2 client registered (bucket: {_r2_bucket_name})")
 
 
-# Dependency injection functions for FastAPI
+# FastAPI Dependency functions (for use with Depends())
 def get_database_service() -> Optional[DatabaseService]:
-    """Get database service instance for dependency injection"""
+    """Get database service instance for FastAPI dependency injection"""
     return _database_service
 
 
 def get_job_service() -> Optional[JobService]:
-    """Get job service instance for dependency injection"""
+    """Get job service instance for FastAPI dependency injection"""
     return _job_service
 
 
 def get_detection_service() -> Optional[DetectionService]:
-    """Get detection service instance for dependency injection"""
+    """Get detection service instance for FastAPI dependency injection"""
     return _detection_service
 
 

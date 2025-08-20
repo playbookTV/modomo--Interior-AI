@@ -6,20 +6,18 @@ from fastapi import APIRouter, BackgroundTasks, Query, HTTPException, Depends
 from typing import Dict, Any, List, Optional
 import structlog
 
-from services.database_service import DatabaseService
-from services.detection_service import DetectionService
-from services.job_service import JobService
+from core.dependencies import get_database_service, get_detection_service, get_job_service
 from config.taxonomy import MODOMO_TAXONOMY
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/classify", tags=["classification"])
 
 
-@router.get("/test")
+@router.get("/test", response_model=None)
 async def test_image_classification(
     image_url: str = Query(..., description="URL of the image to classify"),
     caption: str = Query(None, description="Optional caption for the image"),
-    detection_service: DetectionService = Depends()
+    detection_service = Depends(get_detection_service)
 ):
     """
     Test image classification to determine if it's a scene or object
@@ -69,14 +67,14 @@ async def test_image_classification(
         raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
 
 
-@router.post("/reclassify-scenes")
+@router.post("/reclassify-scenes", response_model=None)
 async def reclassify_existing_scenes(
     background_tasks: BackgroundTasks,
     limit: int = Query(100, description="Number of scenes to reclassify"),
     force_redetection: bool = Query(False, description="Re-run object detection for better classification"),
-    detection_service: DetectionService = Depends(),
-    job_service: JobService = Depends(),
-    db_service: DatabaseService = Depends()
+    detection_service = Depends(get_detection_service),
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ):
     """
     Reclassify existing scenes using enhanced scene vs object detection.
@@ -124,12 +122,12 @@ async def reclassify_existing_scenes(
 
 
 async def run_scene_reclassification_task(
-    detection_service: DetectionService,
-    job_service: JobService,
-    db_service: DatabaseService,
     job_id: str,
     limit: int,
-    force_redetection: bool
+    force_redetection: bool,
+    detection_service = Depends(get_detection_service),
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ):
     """Background task for scene reclassification"""
     try:

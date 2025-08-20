@@ -8,22 +8,21 @@ from fastapi import APIRouter, BackgroundTasks, Query, HTTPException, Depends
 from typing import Dict, Any, List, Optional
 import structlog
 
-from services.database_service import DatabaseService
-from services.job_service import JobService
+from core.dependencies import get_database_service, get_job_service
 from config.taxonomy import MODOMO_TAXONOMY, get_all_categories
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/export", tags=["export"])
 
 
-@router.post("/dataset")
+@router.post(", response_model=None/dataset")
 async def start_dataset_export(
     background_tasks: BackgroundTasks,
     train_ratio: float = Query(0.7, description="Training set ratio (0.0-1.0)"),
     val_ratio: float = Query(0.2, description="Validation set ratio (0.0-1.0)"),
     test_ratio: float = Query(0.1, description="Test set ratio (0.0-1.0)"),
-    db_service: DatabaseService = Depends(),
-    job_service: JobService = Depends()
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
 ):
     """
     Start dataset export job with train/validation/test splits
@@ -87,9 +86,9 @@ async def start_dataset_export(
     }
 
 
-@router.get("/")
+@router.get(", response_model=None/")
 async def get_all_exports(
-    db_service: DatabaseService = Depends()
+    db_service = Depends(get_database_service)
 ):
     """
     Get all dataset export jobs
@@ -135,10 +134,10 @@ async def get_all_exports(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve exports: {str(e)}")
 
 
-@router.get("/{export_id}/status")
+@router.get(", response_model=None/{export_id}/status")
 async def get_export_status(
     export_id: str,
-    job_service: JobService = Depends()
+    job_service = Depends(get_job_service)
 ):
     """
     Get the status of a specific export job
@@ -159,8 +158,8 @@ async def run_dataset_export_task(
     train_ratio: float,
     val_ratio: float,
     test_ratio: float,
-    db_service: DatabaseService,
-    job_service: JobService
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
 ):
     """Background task for dataset export"""
     try:

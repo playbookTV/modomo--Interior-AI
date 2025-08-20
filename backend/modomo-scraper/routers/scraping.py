@@ -2,12 +2,11 @@
 Web scraping API routes for Houzz and dataset import
 """
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Query
+from fastapi import APIRouter, BackgroundTasks, Query, Depends
 from typing import List, Optional
 import structlog
 
-from services.database_service import DatabaseService
-from services.job_service import JobService
+from core.dependencies import get_database_service, get_job_service
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/scrape", tags=["scraping"])
@@ -21,13 +20,13 @@ except ImportError:
     logger.warning("⚠️ Houzz crawler not available - scraping disabled")
 
 
-@router.post("/scenes")
+@router.post(", response_model=None/scenes")
 async def start_scene_scraping(
     background_tasks: BackgroundTasks,
     limit: int = Query(10, description="Number of scenes to scrape"),
     room_types: List[str] = Query(None, description="Filter by room types"),
-    db_service: DatabaseService = None,
-    job_service: JobService = None
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
 ):
     """Start scraping scenes from Houzz UK with full AI processing"""
     if not CRAWLER_AVAILABLE:
@@ -126,15 +125,15 @@ async def start_scene_scraping(
     }
 
 
-@router.post("/import/huggingface-dataset")
+@router.post(", response_model=None/import/huggingface-dataset")
 async def import_huggingface_dataset(
     background_tasks: BackgroundTasks,
     dataset: str = Query("sk2003/houzzdata", description="HuggingFace dataset ID (e.g., username/dataset-name)"),
     offset: int = Query(0, description="Starting offset in dataset"),
     limit: int = Query(50, description="Number of images to import and process"),
     include_detection: bool = Query(True, description="Run AI detection on imported images"),
-    db_service: DatabaseService = None,
-    job_service: JobService = None
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
 ):
     """Import any HuggingFace dataset and process with AI"""
     job_id = str(uuid.uuid4())
@@ -241,7 +240,7 @@ async def run_scraping_task(
     job_id: str, 
     limit: int, 
     room_types: Optional[List[str]],
-    job_service: JobService
+    job_service
 ):
     """Background task for Houzz scraping"""
     try:
@@ -282,7 +281,7 @@ async def run_import_task(
     offset: int,
     limit: int,
     include_detection: bool,
-    job_service: JobService
+    job_service
 ):
     """Background task for HuggingFace dataset import"""
     try:

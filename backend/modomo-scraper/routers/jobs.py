@@ -2,11 +2,11 @@
 Job management and tracking API routes
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import structlog
 
-from services.job_service import JobService
-from services.database_service import DatabaseService
+from core.dependencies import get_job_service, get_database_service
+# Services imported via dependencies
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -14,16 +14,17 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.get("/active", response_model=None)
 async def get_active_jobs(
-    job_service: JobService = Depends(),
-    db_service: DatabaseService = Depends()
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ) -> List[Dict[str, Any]]:
     """Get currently active jobs from Redis and Database"""
+    
     all_jobs = []
     redis_jobs = []
     db_jobs = []
     
     # Get jobs from Redis (real-time active tracking)
-    if job_service.is_available():
+    if job_service and job_service.is_available():
         redis_jobs = job_service.get_active_jobs()
     
     # Also get active jobs from database (persistent tracking)
@@ -68,9 +69,12 @@ async def get_active_jobs(
 
 
 @router.get("/{job_id}/status", response_model=None)
-async def get_job_status(job_id: str, job_service: JobService = Depends()):
+async def get_job_status(
+    job_id: str, 
+    job_service = Depends(get_job_service)
+):
     """Get the status and progress of a specific job"""
-    if not job_service.is_available():
+    if not job_service or not job_service.is_available():
         raise HTTPException(status_code=503, detail="Job tracking not available")
     
     job_data = job_service.get_job(job_id)
@@ -82,9 +86,11 @@ async def get_job_status(job_id: str, job_service: JobService = Depends()):
 
 
 @router.get("/errors/recent", response_model=None)
-async def get_recent_job_errors(job_service: JobService = Depends()):
+async def get_recent_job_errors(
+    job_service = Depends(get_job_service)
+):
     """Get recent job errors for frontend display"""
-    if not job_service.is_available():
+    if not job_service or not job_service.is_available():
         return {"errors": [], "message": "Error tracking not available"}
     
     try:
@@ -106,9 +112,10 @@ async def get_job_history(
     offset: int = Query(0, description="Offset for pagination"),
     status: str = Query(None, description="Filter by status: completed, failed, all"),
     job_type: str = Query(None, description="Filter by job type: scenes, import, processing, detection"),
-    db_service: DatabaseService = Depends()
 ):
     """Get historical job data from database"""
+    db_service = get_database_service()
+    
     if not db_service or not db_service.supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
@@ -189,13 +196,12 @@ async def get_job_history(
 
 
 @router.post("/{job_id}/retry", response_model=None)
-async def retry_job(
-    job_id: str, 
-    job_service: JobService = Depends(), 
-    db_service: DatabaseService = Depends()
-):
+async def retry_job(job_id: str):
     """Retry a failed or stuck job"""
     try:
+        job_service = get_job_service()
+        db_service = get_database_service()
+        
         # Get job details from database
         if not db_service or not db_service.supabase:
             raise HTTPException(status_code=503, detail="Database not available")
@@ -296,9 +302,11 @@ async def retry_job(
 
 
 @router.post("/{job_id}/cancel", response_model=None)
-async def cancel_job(job_id: str, db_service: DatabaseService = Depends()):
+async def cancel_job(job_id: str):
     """Cancel a running job"""
     try:
+        db_service = get_database_service()
+        
         if not db_service or not db_service.supabase:
             raise HTTPException(status_code=503, detail="Database not available")
         
@@ -334,10 +342,11 @@ async def retry_pending_jobs(
     job_type: str = Query(None, description="Filter by job type"),
     older_than_hours: int = Query(1, description="Retry jobs older than X hours"),
     limit: int = Query(50, description="Maximum jobs to retry"),
-    db_service: DatabaseService = Depends()
 ):
     """Bulk retry pending jobs that are stuck"""
     try:
+        db_service = get_database_service()
+        
         if not db_service or not db_service.supabase:
             raise HTTPException(status_code=503, detail="Database not available")
         

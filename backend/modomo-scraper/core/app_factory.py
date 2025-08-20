@@ -90,7 +90,34 @@ def initialize_services() -> dict:
     # Initialize Detection Service
     try:
         from services.detection_service import DetectionService
-        detection_service = DetectionService()
+        # Import AI models locally to avoid circular dependency and allow graceful fallback
+        detector = None
+        segmenter = None
+        embedder = None
+        color_extractor = None
+
+        try:
+            from models.grounding_dino import GroundingDINODetector
+            from models.sam2_segmenter import SAM2Segmenter
+            from models.clip_embedder import CLIPEmbedder
+            from models.color_extractor import ColorExtractor
+
+            detector = GroundingDINODetector()
+            segmenter = SAM2Segmenter()
+            embedder = CLIPEmbedder()
+            color_extractor = ColorExtractor()
+            logger.info("✅ All AI models loaded for DetectionService")
+        except ImportError as e:
+            logger.warning(f"⚠️ Could not load all AI models for DetectionService: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error loading AI models for DetectionService: {e}")
+
+        detection_service = DetectionService(
+            detector=detector,
+            segmenter=segmenter,
+            embedder=embedder,
+            color_extractor=color_extractor
+        )
         set_detection_service(detection_service)
         services_status["detection_service"] = "initialized"
         logger.info("✅ Detection service initialized")
@@ -141,49 +168,65 @@ def initialize_services() -> dict:
     return services_status
 
 
-def register_routers(app: FastAPI):
-    """Register all application routers"""
+# OLD register_routers function - REPLACED with register_all_routers_post_init
+def register_routers_DEPRECATED(app: FastAPI):
+    """DEPRECATED: Use register_all_routers_post_init instead"""
     try:
-        # Add response_model=None to endpoints that might return service objects
-        from fastapi.responses import JSONResponse
-        from fastapi import HTTPException
-        # Import routers with fallback to simple versions
-        try:
-            from routers.jobs import router as jobs_router
-            from routers.detection import router as detection_router
-            from routers.scraping import router as scraping_router
-            from routers.classification import router as classification_router
-            from routers.export import router as export_router
-            from routers.analytics import router as analytics_router
-            from routers.admin import router as admin_router
-            from routers.sync_monitor import sync_router
-            
-            # Register full routers
-            app.include_router(jobs_router)
-            app.include_router(detection_router)
-            app.include_router(scraping_router)
-            app.include_router(classification_router)
-            app.include_router(export_router)
-            app.include_router(analytics_router)
-            app.include_router(admin_router)
-            app.include_router(sync_router)
-            
-            logger.info("✅ Full routers registered")
-            
-        except ImportError:
-            # Fallback to simplified routers
-            logger.warning("⚠️ Full routers not available, using simplified versions")
-            
-            try:
-                from routers_simple.admin import router as admin_router
-                from routers_simple.analytics import router as analytics_router
-                app.include_router(admin_router)
-                app.include_router(analytics_router)
-                logger.info("✅ Simplified routers registered")
-            except ImportError:
-                logger.error("❌ Even simplified routers not available")
+        # Core routers (no circular dependencies)
+        from routers.jobs import router as jobs_router
+        from routers.detection import router as detection_router
+        from routers.scraping import router as scraping_router
+        from routers.classification import router as classification_router
+        from routers.export import router as export_router
+        from routers.analytics import router as analytics_router
+        from routers.admin import router as admin_router
         
-        # Register additional endpoints via separate modules
+        # Register core routers
+        app.include_router(jobs_router)
+        app.include_router(detection_router)
+        app.include_router(scraping_router)
+        app.include_router(classification_router)
+        app.include_router(export_router)
+        app.include_router(analytics_router)
+        app.include_router(admin_router)
+        
+        logger.info("✅ Core routers registered successfully")
+        
+        # Register modular endpoints that don't have circular imports
+        try:
+            from routers.color_endpoints import register_color_routes
+            from routers.review_endpoints import register_review_routes
+            from routers.dataset_endpoints import register_dataset_routes
+            from routers.mask_endpoints import register_mask_routes
+            from routers.advanced_ai_endpoints import register_advanced_ai_routes
+            from routers.admin_utilities import register_admin_utilities
+            
+            register_color_routes(app)
+            register_review_routes(app)
+            register_dataset_routes(app)
+            register_mask_routes(app)
+            register_advanced_ai_routes(app)
+            register_admin_utilities(app)
+            
+            logger.info("✅ Modular endpoints registered successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Some modular endpoints failed to register: {e}")
+        
+        logger.info("✅ Main router registration completed")
+        
+        # Register ALL routers
+        app.include_router(jobs_router)
+        app.include_router(detection_router)
+        app.include_router(scraping_router)
+        app.include_router(classification_router)
+        app.include_router(export_router)
+        app.include_router(analytics_router)
+        app.include_router(admin_router)
+        # sync_router excluded due to circular import
+        
+        logger.info("✅ ALL comprehensive routers registered")
+        
+        # Register modular endpoints
         from routers.color_endpoints import register_color_routes
         from routers.review_endpoints import register_review_routes
         from routers.dataset_endpoints import register_dataset_routes
@@ -198,42 +241,7 @@ def register_routers(app: FastAPI):
         register_advanced_ai_routes(app)
         register_admin_utilities(app)
         
-        # Add debug endpoint with explicit response model to prevent Supabase Client serialization error
-        @app.get("/debug/database-status", response_model=None)
-        async def debug_database_status():
-            from core.dependencies import get_database_service
-            """Debug database connection status without returning client object"""
-            try:
-                database_service = get_database_service()
-                if not database_service:
-                    return {"status": "unavailable", "error": "Database service not initialized"}
-                
-                # Test connection without returning the client
-                result = database_service.supabase.table("scenes").select("scene_id", count="exact").limit(1).execute()
-                
-                return {
-                    "status": "connected",
-                    "can_query": True,
-                    "total_scenes": result.count or 0,
-                    "supabase_url": hasattr(database_service, 'supabase') and database_service.supabase.url is not None
-                }
-            except Exception as e:
-                return {"status": "error", "error": str(e)}
-        
-        # Set R2 clients for endpoints that need them
-        try:
-            from core.dependencies import get_r2_client, get_r2_bucket_name
-            r2_client = get_r2_client()
-            r2_bucket = get_r2_bucket_name()
-            
-            if r2_client:
-                from routers.mask_endpoints import set_r2_client as set_mask_r2_client
-                from routers.admin_utilities import set_r2_client as set_admin_r2_client
-                set_mask_r2_client(r2_client, r2_bucket)
-                set_admin_r2_client(r2_client, r2_bucket)
-                logger.info("✅ R2 client configured for mask and admin endpoints")
-        except ImportError as e:
-            logger.warning(f"⚠️ Could not configure R2 for endpoints: {e}")
+        logger.info("✅ ALL routers registered successfully")
         
     except Exception as e:
         logger.error(f"❌ Router registration failed: {e}")
@@ -274,11 +282,11 @@ def add_health_endpoints(app: FastAPI):
         }
 
 
-def create_complete_app() -> FastAPI:
-    """Create complete application with services and routers"""
-    logger.info("🚀 Creating Modomo Dataset Scraping Application")
+def create_app_without_routers() -> FastAPI:
+    """Create FastAPI application with services but WITHOUT routers (to avoid circular imports)"""
+    logger.info("🚀 Creating Modomo Dataset Scraping Application (Phase 1: No routers)")
     
-    # Create app
+    # Create base app
     app = create_app()
     
     # Initialize services
@@ -288,8 +296,9 @@ def create_complete_app() -> FastAPI:
     # Add health endpoints
     add_health_endpoints(app)
     
-    # Register routers
-    register_routers(app)
+    # Mark app as ready for router registration
+    app.state.services_initialized = True
+    app.state.services_status = services_status
     
     # Add static file serving if directory exists
     static_dir = "static"
@@ -297,5 +306,83 @@ def create_complete_app() -> FastAPI:
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
         logger.info("✅ Static files mounted")
     
-    logger.info("✅ Application created successfully")
+    logger.info("✅ Application created successfully (Phase 1 complete - no routers yet)")
+    return app
+
+
+def register_all_routers_post_init(app: FastAPI):
+    """Register ALL routers AFTER services are initialized (avoids circular imports)"""
+    if not getattr(app.state, 'services_initialized', False):
+        logger.error("❌ Cannot register routers - services not initialized")
+        return False
+        
+    logger.info("🔄 Phase 2: Registering all routers post-initialization")
+    
+    # Now safely import and register routers
+    try:
+        # Import core routers
+        from routers.jobs import router as jobs_router
+        from routers.detection import router as detection_router  
+        from routers.scraping import router as scraping_router
+        from routers.classification import router as classification_router
+        from routers.export import router as export_router
+        from routers.analytics import router as analytics_router
+        from routers.admin import router as admin_router
+        
+        # Register all routers
+        routers = [
+            (jobs_router, "jobs"),
+            (detection_router, "detection"),
+            (scraping_router, "scraping"), 
+            (classification_router, "classification"),
+            (export_router, "export"),
+            (analytics_router, "analytics"),
+            (admin_router, "admin")
+        ]
+        
+        for router, name in routers:
+            app.include_router(router)
+            logger.info(f"✅ Registered {name} router")
+            
+        # Register modular endpoints
+        from routers.color_endpoints import register_color_routes
+        from routers.review_endpoints import register_review_routes
+        from routers.dataset_endpoints import register_dataset_routes
+        from routers.mask_endpoints import register_mask_routes
+        from routers.advanced_ai_endpoints import register_advanced_ai_routes
+        from routers.admin_utilities import register_admin_utilities
+        
+        register_color_routes(app)
+        register_review_routes(app)
+        register_dataset_routes(app)
+        register_mask_routes(app)
+        register_advanced_ai_routes(app)
+        register_admin_utilities(app)
+        
+        logger.info("✅ All modular endpoints registered")
+        
+        # Skip sync_monitor router due to circular import issue
+        logger.info("⚠️ Sync monitor router temporarily disabled due to circular import")
+        
+        logger.info("🎉 Phase 2 complete - All routers registered successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Router registration failed: {e}")
+        return False
+
+
+def create_complete_app() -> FastAPI:
+    """Create complete application with post-initialization router registration"""
+    # Phase 1: Create app with services but no routers
+    app = create_app_without_routers()
+    
+    # Phase 2: Register routers after services are ready  
+    success = register_all_routers_post_init(app)
+    
+    if success:
+        logger.info("✅ Complete application created successfully")
+    else:
+        logger.warning("⚠️ Application created but some routers failed to register")
+        
     return app

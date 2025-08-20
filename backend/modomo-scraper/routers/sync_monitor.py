@@ -3,7 +3,7 @@ Synchronization monitoring router for FE/Celery/Redis/Railway coordination
 Tracks the complete pipeline: Import → AI Detection → Storage Operations
 """
 import structlog
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import asyncio
@@ -13,9 +13,9 @@ logger = structlog.get_logger(__name__)
 sync_router = APIRouter(prefix="/sync", tags=["Synchronization"])
 
 # Import services
-from services.job_service import JobService
-from services.database_service import DatabaseService
-from main_refactored import _job_service, _database_service, celery_app
+from core.dependencies import get_job_service, get_database_service
+from main_refactored import _job_service, _database_service
+# Note: This creates circular import - router excluded from registration
 from tasks.hybrid_processing import run_ai_detection_batch
 
 @sync_router.get("/status",

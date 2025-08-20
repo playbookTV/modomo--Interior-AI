@@ -2,27 +2,25 @@
 Object detection and AI processing API routes
 """
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Body, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Query, Depends
 from typing import Dict, Any
 import structlog
 
-from services.detection_service import DetectionService
-from services.job_service import JobService
-from services.database_service import DatabaseService
+from core.dependencies import get_detection_service, get_job_service, get_database_service
 from config.taxonomy import MODOMO_TAXONOMY
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/detect", tags=["detection"])
 
 
-@router.post("/process")
+@router.post("/process", response_model=None)
 async def process_detection(
     image_url: str = Body(...),
     scene_id: str = Body(None),
     background_tasks: BackgroundTasks = None,
-    detection_service: DetectionService = None,
-    job_service: JobService = None,
-    db_service: DatabaseService = None
+    detection_service = Depends(get_detection_service),
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ):
     """Run object detection on an image"""
     job_id = str(uuid.uuid4())
@@ -68,8 +66,8 @@ async def process_detection(
 
 
 async def run_detection_task(
-    detection_service: DetectionService,
-    job_service: JobService,
+    detection_service,
+    job_service,
     image_url: str,
     job_id: str,
     scene_id: str = None
@@ -90,14 +88,14 @@ async def run_detection_task(
         job_service.fail_job(job_id, str(e))
 
 
-@router.post("/reclassify-scenes")
+@router.post("/reclassify-scenes", response_model=None)
 async def reclassify_existing_scenes(
     background_tasks: BackgroundTasks,
     limit: int = Query(100, description="Number of scenes to reclassify"),
     force_redetection: bool = Query(False, description="Re-run object detection for better classification"),
-    detection_service: DetectionService = None,
-    job_service: JobService = None,
-    db_service: DatabaseService = None
+    detection_service = Depends(get_detection_service),
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ):
     """
     Reclassify existing scenes using enhanced scene vs object detection.
@@ -145,9 +143,9 @@ async def reclassify_existing_scenes(
 
 
 async def run_scene_reclassification_task(
-    detection_service: DetectionService,
-    job_service: JobService,
-    db_service: DatabaseService,
+    detection_service,
+    job_service,
+    db_service,
     job_id: str,
     limit: int,
     force_redetection: bool

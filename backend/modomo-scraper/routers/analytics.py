@@ -1,27 +1,31 @@
 """
 Analytics and statistics API routes
 """
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from typing import Dict, Any, List
 import structlog
 
-from services.database_service import DatabaseService
-from services.detection_service import DetectionService
+from core.dependencies import get_database_service, get_detection_service
 from config.taxonomy import MODOMO_TAXONOMY, get_all_categories
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["analytics"])
 
 
-@router.get("/taxonomy")
+@router.get("/taxonomy", response_model=None)
 async def get_taxonomy():
     """Get the furniture taxonomy"""
     return MODOMO_TAXONOMY
 
 
-@router.get("/stats/dataset")
-async def get_dataset_stats(db_service: DatabaseService = Depends()):
+@router.get("/stats/dataset", response_model=None)
+async def get_dataset_stats():
     """Get dataset statistics"""
+    db_service = get_database_service()
+    
+    if not db_service:
+        raise HTTPException(status_code=503, detail="Database service not available")
+        
     stats = await db_service.get_dataset_stats()
     
     # Add taxonomy info
@@ -30,9 +34,14 @@ async def get_dataset_stats(db_service: DatabaseService = Depends()):
     return stats
 
 
-@router.get("/stats/categories")
-async def get_category_stats(db_service: DatabaseService = Depends()):
+@router.get("/stats/categories", response_model=None)
+async def get_category_stats():
     """Get category-wise statistics"""
+    db_service = get_database_service()
+    
+    if not db_service:
+        raise HTTPException(status_code=503, detail="Database service not available")
+        
     try:
         # Get category stats from detected objects
         result = db_service.supabase.table("detected_objects").select("category, confidence, approved").execute()
@@ -96,13 +105,16 @@ async def get_category_stats(db_service: DatabaseService = Depends()):
         return categories
 
 
-@router.get("/colors/extract")
+@router.get("/colors/extract", response_model=None)
 async def extract_colors_from_url(
     image_url: str = Query(..., description="URL of the image to analyze"),
     bbox: str = Query(None, description="Bounding box as 'x,y,width,height' for object crop"),
-    detection_service: DetectionService = Depends()
+
 ):
     """Extract dominant colors from an image or object crop"""
+    detection_service = get_detection_service()
+    if not detection_service:
+        raise HTTPException(status_code=503, detail="Detection service not available")
     # Parse bbox if provided
     bbox_coords = None
     if bbox:
@@ -116,10 +128,12 @@ async def extract_colors_from_url(
     return await detection_service.extract_colors_from_url(image_url, bbox_coords)
 
 
-@router.get("/colors/palette")
-async def get_color_palette(detection_service: DetectionService = Depends()):
+@router.get("/colors/palette", response_model=None)
+async def get_color_palette():
     """Get available color names and their RGB values for filtering"""
-    if not detection_service.color_extractor:
+    detection_service = get_detection_service()
+    
+    if not detection_service or not detection_service.color_extractor:
         return {"error": "Color extractor not available"}
     
     # Return the color mappings from the extractor
@@ -134,9 +148,14 @@ async def get_color_palette(detection_service: DetectionService = Depends()):
     }
 
 
-@router.get("/stats/colors")
-async def get_color_statistics(db_service: DatabaseService = Depends()):
+@router.get("/stats/colors", response_model=None)
+async def get_color_statistics():
     """Get statistics about colors in the dataset"""
+    db_service = get_database_service()
+    
+    if not db_service:
+        raise HTTPException(status_code=503, detail="Database service not available")
+        
     try:
         # Get all objects with color metadata
         result = db_service.supabase.table("detected_objects").select(

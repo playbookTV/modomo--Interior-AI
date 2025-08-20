@@ -1,1 +1,0 @@
-# Simple routers package without dependency injection
