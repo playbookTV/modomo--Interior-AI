@@ -1,6 +1,7 @@
 """
 Phase 2: AI detection pipeline Celery tasks
 """
+import os
 import structlog
 import uuid
 from typing import Dict, Any, List
@@ -266,60 +267,117 @@ def reprocess_scene_objects(self, job_id: str, scene_id: str, force_redetection:
         raise
 
 def get_detection_service():
-    """Get initialized detection service"""
+    """Get Railway-based detection service (HTTP client)"""
     try:
-        # Check if PyTorch is available
-        try:
-            import torch
-        except ImportError:
-            logger.warning("PyTorch not available - AI detection disabled in this worker")
-            return None
+        # Instead of loading models locally, create HTTP client to Railway
+        from services.railway_detection_client import RailwayDetectionClient
         
-        # Check if detection service is available
-        try:
-            from services.detection_service import DetectionService
-        except ImportError:
-            logger.warning("Detection service not available - AI models not installed")
-            return None
+        # Railway service URL from environment
+        railway_url = os.getenv("RAILWAY_AI_SERVICE_URL", "https://ovalay-recruitment-production.up.railway.app")
         
-        # Initialize AI models
-        detector = None
-        segmenter = None
-        embedder = None
-        color_extractor = None
+        return RailwayDetectionClient(base_url=railway_url)
         
-        try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            
-            # Initialize models
-            from models.grounding_dino import GroundingDINODetector
-            from models.sam2_segmenter import SAM2Segmenter, SegmentationConfig
-            from models.clip_embedder import CLIPEmbedder
-            from models.color_extractor import ColorExtractor
-            
-            detector = GroundingDINODetector()
-            config = SegmentationConfig(device=device)
-            segmenter = SAM2Segmenter(config=config)
-            embedder = CLIPEmbedder()
-            color_extractor = ColorExtractor()
-            
-            logger.info(f"AI models initialized on {device}")
-            
-        except Exception as model_error:
-            logger.warning(f"AI model initialization failed: {model_error}")
-            return None
-        
-        # Create detection service
-        return DetectionService(
-            detector=detector,
-            segmenter=segmenter,
-            embedder=embedder,
-            color_extractor=color_extractor
-        )
-        
+    except ImportError:
+        logger.warning("Railway detection client not available - creating fallback")
+        # Create a simple HTTP client as fallback
+        return RailwayDetectionHTTPClient()
     except Exception as e:
-        logger.error(f"Failed to initialize detection service: {e}")
+        logger.error(f"Failed to initialize Railway detection service: {e}")
         return None
+
+
+class RailwayDetectionHTTPClient:
+    """Simple HTTP client for Railway AI detection service"""
+    
+    def __init__(self, base_url: str = None):
+        self.base_url = base_url or os.getenv("RAILWAY_AI_SERVICE_URL", "https://ovalay-recruitment-production.up.railway.app")
+        
+    def is_available(self) -> bool:
+        """Check if Railway service is available"""
+        try:
+            import requests
+            response = requests.get(f"{self.base_url}/health", timeout=10)
+            return response.status_code == 200
+        except:
+            return False
+    
+    async def run_detection_pipeline(self, image_url: str, job_id: str, taxonomy: dict) -> list:
+        """Run detection pipeline via Railway API"""
+        try:
+            import requests
+            import asyncio
+            
+            # Make HTTP request to Railway detection endpoint
+            payload = {
+                "image_url": image_url,
+                "scene_id": None,  # We'll use job_id for tracking
+                "taxonomy": taxonomy
+            }
+            
+            # Use requests in a thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(
+                    f"{self.base_url}/detect/process",
+                    json=payload,
+                    timeout=300  # 5 minute timeout for AI processing
+                )
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if "results" in result:
+                    logger.info(f"✅ Railway detection successful: {len(result['results'])} objects detected")
+                    return result["results"]
+                elif "job_id" in result:
+                    # If Railway returns a job_id, we need to poll for results
+                    railway_job_id = result["job_id"]
+                    return await self._poll_railway_job(railway_job_id)
+                else:
+                    logger.warning("Railway detection returned unexpected format")
+                    return []
+            else:
+                logger.error(f"Railway detection failed: {response.status_code} - {response.text}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Railway detection pipeline failed: {e}")
+            return []
+    
+    async def _poll_railway_job(self, railway_job_id: str, max_polls: int = 60) -> list:
+        """Poll Railway job status until completion"""
+        import requests
+        import asyncio
+        
+        for i in range(max_polls):
+            try:
+                response = requests.get(f"{self.base_url}/jobs/{railway_job_id}/status", timeout=10)
+                if response.status_code == 200:
+                    job_data = response.json()
+                    
+                    if job_data.get("status") == "completed":
+                        # Job completed, get results
+                        if "result" in job_data and "results" in job_data["result"]:
+                            return job_data["result"]["results"]
+                        return []
+                    elif job_data.get("status") == "failed":
+                        logger.error(f"Railway job {railway_job_id} failed: {job_data.get('error', 'Unknown error')}")
+                        return []
+                    else:
+                        # Still processing, wait and poll again
+                        await asyncio.sleep(5)
+                        continue
+                else:
+                    logger.warning(f"Could not check Railway job status: {response.status_code}")
+                    await asyncio.sleep(5)
+                    
+            except Exception as poll_error:
+                logger.warning(f"Error polling Railway job {railway_job_id}: {poll_error}")
+                await asyncio.sleep(5)
+        
+        logger.warning(f"Railway job {railway_job_id} polling timed out after {max_polls * 5} seconds")
+        return []
 
 def get_scene_data(scene_id: str) -> Dict[str, Any]:
     """Get scene data from database"""

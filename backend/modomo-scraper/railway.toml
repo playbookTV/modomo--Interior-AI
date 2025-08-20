@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile.smart"
 
 [deploy]
-startCommand = "python main_railway.py"
+startCommand = "python main_refactored.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 # Increased timeout for initial model loading
