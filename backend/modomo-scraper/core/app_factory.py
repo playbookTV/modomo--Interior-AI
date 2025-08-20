@@ -361,8 +361,13 @@ def register_all_routers_post_init(app: FastAPI):
         
         logger.info("✅ All modular endpoints registered")
         
-        # Skip sync_monitor router due to circular import issue
-        logger.info("⚠️ Sync monitor router temporarily disabled due to circular import")
+        # Register clean sync router (no circular imports)
+        try:
+            from routers.sync_clean import sync_router
+            app.include_router(sync_router)
+            logger.info("✅ Clean sync monitoring router registered")
+        except Exception as sync_error:
+            logger.warning(f"⚠️ Clean sync router registration failed: {sync_error}")
         
         logger.info("🎉 Phase 2 complete - All routers registered successfully")
         return True

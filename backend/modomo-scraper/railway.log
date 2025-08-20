@@ -1,0 +1,88 @@
+ERROR:restore_models:❌ Source models directory not found: /app/models_src
+INFO:init_models:🚀 Initializing AI models...
+INFO:init_models:📁 Creating models directory: /app/model_cache
+INFO:init_caches:🚀 Starting Railway Volume cache initialization...
+INFO:init_caches:🏗️ Creating cache directories...
+Traceback (most recent call last):
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_railway.py", line 126, in get_app
+    import structlog
+ModuleNotFoundError: No module named 'structlog'
+🔧 Restoring model Python files after Railway Volume mount...
+❌ Failed to restore model Python files
+🔧 Running comprehensive models import fix...
+🔧 Fixing models import issues...
+🔍 Models directory: /Users/leslieisah/modomo/backend/modomo-scraper/models
+🔍 Models directory exists: True
+📁 Models directory contents:
+   - depth_estimator.py
+   - grounding_dino.py
+   - .DS_Store
+   - boundary_refine.py
+   - sam2_segmenter.py
+   - __init__.py
+   - __pycache__
+   - clip_embedder.py
+   - edge_detector.py
+   - fusion.py
+   - color_extractor.py
+   - map_generator.py
+🔍 __init__.py exists: True
+✅ __init__.py already exists
+
+🧪 Testing individual model imports...
+✅ color_extractor.py file exists
+✅ grounding_dino.py file exists
+✅ sam2_segmenter.py file exists
+✅ clip_embedder.py file exists
+
+🧪 Testing models package import...
+⚠️ Some AI models not available: No module named 'numpy'
+✅ models package imported successfully
+❌ ColorExtractor import failed: No module named 'cv2'
+❌ GroundingDINODetector import failed: No module named 'torch'
+❌ SAM2Segmenter import failed: No module named 'numpy'
+❌ CLIPEmbedder import failed: No module named 'torch'
+✅ Models import fix completed successfully
+🤖 Initializing AI models from Railway Volume...
+⚠️ Model initialization warning: [Errno 30] Read-only file system: '/app'
+🔄 Continuing with existing models if available...
+🚀 Initializing Phase 2 caches...
+⚠️ Cache initialization warning: [Errno 30] Read-only file system: '/app'
+🔄 Will initialize caches on first use...
+🔍 AI_MODE environment variable: full
+💡 Missing AI dependency: No module named 'numpy'
+🤖 AI dependencies available: False
+🚀 Loading refactored architecture...
+🔍 Python path: ['/Users/leslieisah/modomo/backend/modomo-scraper', '/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/lib/python313.zip', '/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/lib/python3.13']...
+❌ Missing critical dependency: No module named 'structlog'
+❌ Failed to load refactored architecture: No module named 'structlog'
+🔄 Falling back to original full AI mode...
+❌ Failed to load original full AI mode: No module named 'fastapi'
+💥 CRITICAL: AI dependencies missing in production build!
+🔧 Check Dockerfile and requirements-ai-stable.txt
+🔄 Final fallback to basic mode (NOT RECOMMENDED FOR PRODUCTION)
+💥 FATAL: Even basic mode failed: No module named 'fastapi'
+Traceback (most recent call last):
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_railway.py", line 126, in get_app
+    import structlog
+ModuleNotFoundError: No module named 'structlog'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_railway.py", line 144, in get_app
+    from main_full import app
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_full.py", line 15, in <module>
+    from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body
+ModuleNotFoundError: No module named 'fastapi'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_railway.py", line 166, in <module>
+    app = get_app()
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_railway.py", line 158, in get_app
+    from main_basic import app
+  File "/Users/leslieisah/modomo/backend/modomo-scraper/main_basic.py", line 13, in <module>
+    from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Body
+ModuleNotFoundError: No module named 'fastapi'

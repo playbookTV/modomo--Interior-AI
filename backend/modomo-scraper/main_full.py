@@ -200,7 +200,8 @@ async def serve_mask(filename: str):
                 
                 # Try direct public URL as fallback
                 # This works if the R2 bucket has public read access
-                public_url = f"https://pub-<account-id>.r2.dev/{r2_key}"
+                base_url = os.getenv("CLOUDFLARE_R2_PUBLIC_URL", "https://pub-fa2319b55e064be087da337e9655b9de.r2.dev")
+                public_url = f"{base_url}/{r2_key}"
                 return RedirectResponse(
                     url=public_url,
                     status_code=302,
@@ -269,7 +270,7 @@ async def migrate_cache_to_r2():
                         
                     local_file_path = os.path.join(root, file)
                     relative_path = os.path.relpath(local_file_path, local_dir)
-                    r2_key = f"{r2_prefix}/{relative_path}".replace("\", "/")  # Ensure forward slashes
+                    r2_key = f"{r2_prefix}/{relative_path}".replace("\\", "/")  # Ensure forward slashes
                     
                     try:
                         # Check if file already exists in R2

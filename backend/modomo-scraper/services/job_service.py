@@ -150,20 +150,38 @@ class JobService:
             active_jobs = []
             
             for job_key in job_keys:
-                job_data = self.redis.hgetall(job_key)
-                if job_data and job_data.get(b"status", b"").decode() in ["pending", "running", "processing"]:
-                    # Convert bytes to strings for JSON serialization
-                    job_status = {
-                        key.decode() if isinstance(key, bytes) else key: 
-                        value.decode() if isinstance(value, bytes) else value 
-                        for key, value in job_data.items()
-                    }
+                try:
+                    job_data = self.redis.hgetall(job_key)
                     
-                    # Ensure job_id is included from Redis key if missing
-                    if "job_id" not in job_status:
-                        job_status["job_id"] = job_key.decode().replace("job:", "")
+                    # Check if job_data is actually a hash/dict and not a string
+                    if not job_data or not hasattr(job_data, 'items'):
+                        logger.debug(f"Skipping malformed job data for {job_key}: {type(job_data)}")
+                        continue
                     
-                    active_jobs.append(job_status)
+                    # Check status
+                    status_bytes = job_data.get(b"status", b"")
+                    if isinstance(status_bytes, bytes):
+                        status = status_bytes.decode()
+                    else:
+                        status = str(status_bytes)
+                    
+                    if status in ["pending", "running", "processing"]:
+                        # Convert bytes to strings for JSON serialization
+                        job_status = {}
+                        for key, value in job_data.items():
+                            key_str = key.decode() if isinstance(key, bytes) else str(key)
+                            value_str = value.decode() if isinstance(value, bytes) else str(value)
+                            job_status[key_str] = value_str
+                        
+                        # Ensure job_id is included from Redis key if missing
+                        if "job_id" not in job_status:
+                            job_status["job_id"] = job_key.decode().replace("job:", "")
+                        
+                        active_jobs.append(job_status)
+                        
+                except Exception as job_error:
+                    logger.warning(f"Failed to process job {job_key}: {job_error}")
+                    continue
             
             return active_jobs
             
@@ -181,14 +199,20 @@ class JobService:
             recent_errors = []
             
             for job_key in job_keys:
-                job_data = self.redis.hgetall(job_key)
-                if job_data:
+                try:
+                    job_data = self.redis.hgetall(job_key)
+                    
+                    # Check if job_data is actually a hash/dict and not a string
+                    if not job_data or not hasattr(job_data, 'items'):
+                        logger.debug(f"Skipping malformed job data for {job_key}: {type(job_data)}")
+                        continue
+                    
                     # Convert bytes to strings for proper comparison and access
-                    job_status = {
-                        key.decode() if isinstance(key, bytes) else key: 
-                        value.decode() if isinstance(value, bytes) else value 
-                        for key, value in job_data.items()
-                    }
+                    job_status = {}
+                    for key, value in job_data.items():
+                        key_str = key.decode() if isinstance(key, bytes) else str(key)
+                        value_str = value.decode() if isinstance(value, bytes) else str(value)
+                        job_status[key_str] = value_str
                     
                     if job_status.get("status") in ["failed", "error"]:
                         recent_errors.append({
@@ -199,6 +223,10 @@ class JobService:
                             "processed": int(job_status.get("processed", 0)),
                             "total": int(job_status.get("total", 0))
                         })
+                        
+                except Exception as job_error:
+                    logger.warning(f"Failed to process error job {job_key}: {job_error}")
+                    continue
             
             # Sort by updated_at desc, limit to most recent
             recent_errors.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -225,3 +253,35 @@ class JobService:
             message=error_message,
             failed_at=datetime.utcnow().isoformat()
         )
+    
+    def cleanup_malformed_jobs(self) -> int:
+        """Clean up malformed job data in Redis"""
+        if not self.redis:
+            return 0
+        
+        cleaned_count = 0
+        try:
+            job_keys = self.redis.keys("job:*")
+            
+            for job_key in job_keys:
+                try:
+                    job_data = self.redis.hgetall(job_key)
+                    
+                    # If job_data is not a proper hash/dict, delete it
+                    if not job_data or not hasattr(job_data, 'items'):
+                        logger.info(f"Cleaning up malformed job data: {job_key}")
+                        self.redis.delete(job_key)
+                        cleaned_count += 1
+                        
+                except Exception as e:
+                    logger.warning(f"Error checking job {job_key}, deleting: {e}")
+                    self.redis.delete(job_key)
+                    cleaned_count += 1
+                    
+        except Exception as e:
+            logger.error(f"Failed to cleanup malformed jobs: {e}")
+        
+        if cleaned_count > 0:
+            logger.info(f"✅ Cleaned up {cleaned_count} malformed job records")
+        
+        return cleaned_count

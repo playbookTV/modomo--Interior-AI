@@ -193,16 +193,35 @@ def store_scene_in_database(scene_data: Dict[str, Any]) -> Optional[str]:
 
 def get_houzz_crawler():
     """Get Houzz crawler instance"""
-    # Placeholder - would import actual crawler
-    logger.warning("Houzz crawler not implemented yet")
-    return None
+    try:
+        from crawlers.houzz_crawler import HouzzCrawler
+        crawler = HouzzCrawler()
+        logger.info("✅ Houzz crawler initialized successfully")
+        return crawler
+    except ImportError as e:
+        logger.error(f"❌ Failed to import Houzz crawler: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Houzz crawler: {e}")
+        return None
 
 
-def scrape_houzz_scenes(crawler, limit: int, room_types: Optional[List[str]] = None):
-    """Scrape scenes from Houzz"""
-    # Placeholder - would use actual crawler
-    logger.warning("Houzz scraping not implemented yet") 
-    return []
+async def scrape_houzz_scenes(crawler, limit: int, room_types: Optional[List[str]] = None):
+    """Scrape scenes from Houzz using the actual crawler"""
+    try:
+        logger.info(f"Starting Houzz scraping: limit={limit}, room_types={room_types}")
+        scenes = await crawler.scrape_scenes(limit=limit, room_types=room_types)
+        logger.info(f"✅ Successfully scraped {len(scenes)} scenes from Houzz")
+        return scenes
+    except Exception as e:
+        logger.error(f"❌ Houzz scraping failed: {e}")
+        return []
+    finally:
+        # Ensure crawler is properly closed
+        try:
+            await crawler.close()
+        except:
+            pass
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_kwargs={'max_retries': 2, 'countdown': 300})
 def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[str]] = None):
@@ -226,8 +245,8 @@ def run_scraping_job(self, job_id: str, limit: int, room_types: Optional[List[st
         scraped_scenes = []
         
         try:
-            # Use crawler to get scenes
-            scraped_scenes = scrape_houzz_scenes(crawler, limit, room_types)
+            # Use crawler to get scenes (handle async function)
+            scraped_scenes = asyncio.run(scrape_houzz_scenes(crawler, limit, room_types))
             scraped = len(scraped_scenes)
             
             logger.info(f"Scraped {scraped} scenes from Houzz")

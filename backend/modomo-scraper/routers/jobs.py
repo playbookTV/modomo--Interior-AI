@@ -4,8 +4,9 @@ Job management and tracking API routes
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Dict, Any, Optional
 import structlog
+import uuid
 
-from core.dependencies import get_job_service, get_database_service
+from core.dependencies import get_job_service, get_database_service, get_detection_service
 # Services imported via dependencies
 
 logger = structlog.get_logger(__name__)
@@ -337,6 +338,150 @@ async def cancel_job(job_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 
 
+@router.post("/generate-maps/batch", response_model=None)
+async def generate_maps_batch(
+    limit: int = Query(10, description="Number of scenes to process"),
+    map_types: List[str] = Query(["depth", "edge"], description="Types of maps to generate"),
+    force_regenerate: bool = Query(False, description="Force regenerate existing maps"),
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
+):
+    """Batch generate depth and edge maps for scenes"""
+    try:
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        job_id = str(uuid.uuid4())
+        
+        # Create job tracking
+        if job_service:
+            job_service.create_job(
+                job_id=job_id,
+                job_type="map_generation", 
+                total=limit,
+                message="Starting batch map generation"
+            )
+        
+        # Get scenes that need map generation
+        query = db_service.supabase.table("scenes").select("scene_id, image_url, depth_map_r2_key, edge_map_r2_key")
+        
+        if not force_regenerate:
+            # Only get scenes without existing maps
+            query = query.or_("depth_map_r2_key.is.null,edge_map_r2_key.is.null")
+        
+        result = query.limit(limit).execute()
+        
+        if not result.data:
+            if job_service:
+                job_service.complete_job(job_id, "No scenes found for map generation")
+            return {
+                "job_id": job_id,
+                "message": "No scenes found for map generation",
+                "scenes_processed": 0,
+                "maps_generated": {}
+            }
+        
+        scenes_to_process = result.data
+        logger.info(f"🗺️ Starting batch map generation for {len(scenes_to_process)} scenes")
+        
+        # Import map generation dependencies
+        from models.map_generator import MapGenerator, MapGenerationConfig
+        from models.depth_estimator import DepthAnythingV2
+        from models.edge_detector import EdgeDetector
+        
+        # Initialize map generator
+        config = MapGenerationConfig(
+            upload_to_r2=True,
+            keep_local_copies=False,
+            max_concurrent_maps=1
+        )
+        
+        try:
+            depth_estimator = DepthAnythingV2()
+            edge_detector = EdgeDetector()
+            map_generator = MapGenerator(depth_estimator, edge_detector, config)
+        except Exception as e:
+            logger.error(f"Failed to initialize map generator: {e}")
+            if job_service:
+                job_service.fail_job(job_id, f"Failed to initialize map generator: {e}")
+            raise HTTPException(status_code=500, detail=f"Map generator initialization failed: {e}")
+        
+        maps_generated = {"depth": 0, "edge": 0}
+        scenes_processed = 0
+        errors = []
+        
+        for i, scene in enumerate(scenes_to_process):
+            try:
+                if job_service:
+                    job_service.update_job(
+                        job_id,
+                        processed=i,
+                        total=len(scenes_to_process),
+                        message=f"Generating maps for scene {i+1}/{len(scenes_to_process)}"
+                    )
+                
+                scene_id = scene["scene_id"]
+                image_url = scene["image_url"]
+                
+                logger.info(f"🗺️ Processing scene {scene_id} ({i+1}/{len(scenes_to_process)})")
+                
+                # Generate maps
+                result = await map_generator.generate_all_maps(
+                    image_url,
+                    scene_id,
+                    map_types
+                )
+                
+                if result["success"] and result["r2_keys"]:
+                    # Update scene record with R2 keys
+                    updates = {}
+                    
+                    for map_type, r2_key in result["r2_keys"].items():
+                        if map_type == "depth":
+                            updates["depth_map_r2_key"] = r2_key
+                            maps_generated["depth"] += 1
+                        elif map_type == "edge":
+                            updates["edge_map_r2_key"] = r2_key
+                            maps_generated["edge"] += 1
+                    
+                    if updates:
+                        db_service.supabase.table("scenes").update(updates).eq("scene_id", scene_id).execute()
+                        logger.info(f"✅ Updated scene {scene_id} with map keys: {updates}")
+                
+                scenes_processed += 1
+                
+            except Exception as scene_error:
+                error_msg = f"Scene {scene.get('scene_id', 'unknown')}: {str(scene_error)}"
+                errors.append(error_msg)
+                logger.error(f"❌ Map generation failed for scene: {error_msg}")
+        
+        # Cleanup
+        if 'map_generator' in locals():
+            map_generator.cleanup()
+        
+        message = f"Batch map generation completed: {scenes_processed} scenes processed, {sum(maps_generated.values())} total maps generated"
+        
+        if job_service:
+            job_service.complete_job(job_id, message)
+        
+        return {
+            "job_id": job_id,
+            "message": message,
+            "scenes_processed": scenes_processed,
+            "maps_generated": maps_generated,
+            "errors": errors,
+            "total_scenes": len(scenes_to_process)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Batch map generation failed: {e}")
+        if 'job_service' in locals() and job_service:
+            job_service.fail_job(job_id, str(e))
+        raise HTTPException(status_code=500, detail=f"Batch map generation failed: {str(e)}")
+
+
 @router.post("/retry-pending", response_model=None)
 async def retry_pending_jobs(
     job_type: str = Query(None, description="Filter by job type"),
@@ -438,3 +583,80 @@ async def retry_pending_jobs(
     except Exception as e:
         logger.error(f"Bulk retry failed: {e}")
         raise HTTPException(status_code=500, detail=f"Bulk retry failed: {str(e)}")
+
+
+@router.get("/performance/status", response_model=None)
+async def get_performance_status():
+    """Get system performance status and monitoring information"""
+    try:
+        # Import performance monitor
+        try:
+            from utils.performance_monitor import get_performance_monitor
+            monitor = get_performance_monitor()
+            performance_available = True
+        except ImportError:
+            logger.warning("Performance monitor not available")
+            performance_available = False
+            monitor = None
+        
+        status = {
+            "performance_monitoring": performance_available,
+            "timestamp": f"{uuid.uuid4()}",  # Using UUID for unique timestamp
+            "status": "healthy"
+        }
+        
+        if performance_available and monitor:
+            try:
+                # Get performance metrics
+                system_info = monitor.get_system_info()
+                recommendations = monitor.get_recommendations()
+                
+                status.update({
+                    "system": system_info,
+                    "recommendations": recommendations,
+                    "memory_usage": system_info.get("memory_usage"),
+                    "gpu_available": system_info.get("gpu_available", False),
+                    "gpu_memory": system_info.get("gpu_memory"),
+                    "cpu_count": system_info.get("cpu_count"),
+                    "estimated_times": recommendations.get("estimated_times", {}),
+                    "warnings": recommendations.get("warnings", [])
+                })
+                
+                # Add service-specific status
+                detection_service = get_detection_service()
+                db_service = get_database_service()
+                job_service = get_job_service()
+                
+                status["services"] = {
+                    "detection_service": detection_service is not None,
+                    "database_service": db_service is not None,
+                    "job_service": job_service is not None
+                }
+                
+            except Exception as monitor_error:
+                logger.error(f"Failed to get performance metrics: {monitor_error}")
+                status["monitor_error"] = str(monitor_error)
+        else:
+            # Fallback status without performance monitoring
+            import psutil
+            
+            status.update({
+                "system": {
+                    "cpu_percent": psutil.cpu_percent(interval=1),
+                    "memory_percent": psutil.virtual_memory().percent,
+                    "cpu_count": psutil.cpu_count(),
+                    "gpu_available": False
+                },
+                "fallback_mode": True
+            })
+        
+        return status
+        
+    except Exception as e:
+        logger.error(f"Performance status check failed: {e}")
+        return {
+            "performance_monitoring": False,
+            "status": "error",
+            "error": str(e),
+            "timestamp": f"{uuid.uuid4()}"
+        }

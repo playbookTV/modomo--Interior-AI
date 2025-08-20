@@ -12,6 +12,53 @@ logger = get_logger(__name__)
 def register_review_routes(app: FastAPI):
     """Register review-related endpoints to the app"""
     
+    @app.get("/scenes")
+    async def get_scenes(
+        limit: int = Query(10, description="Number of scenes to return"),
+        offset: int = Query(0, description="Number of scenes to skip")
+    ):
+        """Get scenes with pagination - frontend compatibility endpoint"""
+        try:
+            database_service = get_database_service()
+            if not database_service:
+                raise HTTPException(status_code=503, detail="Database service not available")
+            
+            # Build query
+            query = database_service.supabase.table("scenes").select(
+                "scene_id, houzz_id, image_url, image_r2_key, room_type, style_tags, color_tags, status, created_at, metadata"
+            )
+            
+            # Apply pagination
+            scenes_result = query.range(offset, offset + limit - 1).order("created_at", desc=True).execute()
+            
+            # Get total count
+            count_result = database_service.supabase.table("scenes").select("scene_id", count="exact").execute()
+            total_scenes = count_result.count or 0
+            
+            # Enhance each scene with its detected objects
+            enhanced_scenes = []
+            for scene in scenes_result.data or []:
+                objects_result = database_service.supabase.table("detected_objects").select(
+                    "object_id, category, confidence, bbox, tags, mask_url, mask_r2_key, matched_product_id, approved, metadata"
+                ).eq("scene_id", scene["scene_id"]).execute()
+                
+                scene_dict = dict(scene)
+                scene_dict["objects"] = objects_result.data or []
+                scene_dict["object_count"] = len(objects_result.data or [])
+                enhanced_scenes.append(scene_dict)
+            
+            return {
+                "scenes": enhanced_scenes,
+                "total": total_scenes,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + len(enhanced_scenes)) < total_scenes
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Get scenes error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to get scenes: {str(e)}")
+    
     @app.get("/review/queue")
     async def get_review_queue(
         limit: int = Query(20, description="Number of scenes to return"),

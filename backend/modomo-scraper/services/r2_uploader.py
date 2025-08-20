@@ -236,7 +236,7 @@ class R2Uploader:
     def get_public_url(self, r2_key: str) -> str:
         """Get public URL for R2 object (if bucket is public)"""
         # For Railway static serving, construct URL based on your setup
-        base_url = os.getenv("R2_PUBLIC_URL", f"https://{self.bucket_name}.r2.dev")
+        base_url = os.getenv("CLOUDFLARE_R2_PUBLIC_URL") or os.getenv("R2_PUBLIC_URL", "https://pub-fa2319b55e064be087da337e9655b9de.r2.dev")
         return f"{base_url}/{r2_key}"
     
     def get_status(self) -> Dict[str, Any]:
