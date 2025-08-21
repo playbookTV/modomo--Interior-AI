@@ -33,7 +33,7 @@ const API_BASE = 'https://ovalay-recruitment-production.up.railway.app'
 
 async function generateMapsBatch(limit: number = 10, mapTypes: string[] = ['depth', 'edge'], forceRegenerate: boolean = false) {
   const mapTypesQuery = mapTypes.map(type => `map_types=${type}`).join('&')
-  const response = await fetch(`${API_BASE}/generate-maps/batch?limit=${limit}&${mapTypesQuery}&force_regenerate=${forceRegenerate}`, {
+  const response = await fetch(`${API_BASE}/jobs/generate-maps/batch?limit=${limit}&${mapTypesQuery}&force_regenerate=${forceRegenerate}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -41,7 +41,24 @@ async function generateMapsBatch(limit: number = 10, mapTypes: string[] = ['dept
   })
   
   if (!response.ok) {
-    throw new Error(`Map generation failed: ${response.status}`)
+    const errorText = await response.text()
+    let errorMessage = `Map generation failed: ${response.status}`
+    
+    // Handle specific backend errors
+    if (response.status === 500 && errorText.includes("cannot import name 'DepthAnythingV2'")) {
+      errorMessage = "Backend model import error - this feature needs a backend deployment to fix the import issues."
+    } else if (response.status === 500 && errorText.includes("'SyncSelectRequestBuilder' object has no attribute 'or_'")) {
+      errorMessage = "Backend database query error - this feature needs a backend update to fix the Supabase query syntax."
+    } else if (errorText) {
+      try {
+        const errorData = JSON.parse(errorText)
+        errorMessage = errorData.detail || errorMessage
+      } catch {
+        errorMessage = errorText
+      }
+    }
+    
+    throw new Error(errorMessage)
   }
   
   return await response.json()

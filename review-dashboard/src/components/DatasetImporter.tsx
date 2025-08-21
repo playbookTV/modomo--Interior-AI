@@ -73,7 +73,14 @@ async function fetchJobStatus(jobId: string): Promise<JobProgress> {
   )
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error('Job not found')
+      // Job not found - might be completed or expired
+      return {
+        status: 'not_found',
+        progress: 0,
+        processed: 0,
+        total: 0,
+        message: 'Job not found - may have completed or expired'
+      }
     }
     throw new Error('Failed to fetch job status')
   }
@@ -82,10 +89,14 @@ async function fetchJobStatus(jobId: string): Promise<JobProgress> {
 
 async function fetchScenes(limit = 10): Promise<{scenes: any[], total: number}> {
   const response = await fetch(
-    `https://ovalay-recruitment-production.up.railway.app/scenes?limit=${limit}&offset=0`
+    `https://ovalay-recruitment-production.up.railway.app/review/queue?limit=${limit}&offset=0`
   )
   if (!response.ok) throw new Error('Failed to fetch scenes')
-  return response.json()
+  const data = await response.json()
+  return {
+    scenes: data.scenes || [],
+    total: data.pagination?.total || 0
+  }
 }
 
 async function fetchDatasetStats(): Promise<any> {
