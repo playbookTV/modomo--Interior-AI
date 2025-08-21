@@ -97,20 +97,24 @@ def initialize_services() -> dict:
         color_extractor = None
 
         try:
-            # Add current directory to Python path to ensure model imports work
+            # Add models directory to Python path for direct imports
             import sys
             import os
             current_dir = os.path.dirname(os.path.abspath(__file__))
             project_root = os.path.dirname(current_dir)
+            models_dir = os.path.join(project_root, 'models')
+            
             if project_root not in sys.path:
                 sys.path.insert(0, project_root)
-                logger.info(f"Added {project_root} to Python path for model imports")
+            if models_dir not in sys.path:
+                sys.path.insert(0, models_dir)
+                logger.info(f"Added {models_dir} to Python path for direct model imports")
             
-            # Now import AI models with better error handling
-            from models.grounding_dino import GroundingDINODetector
-            from models.sam2_segmenter import SAM2Segmenter
-            from models.clip_embedder import CLIPEmbedder
-            from models.color_extractor import ColorExtractor
+            # Import AI models directly (since models dir is in path)
+            from grounding_dino import GroundingDINODetector
+            from sam2_segmenter import SAM2Segmenter
+            from clip_embedder import CLIPEmbedder
+            from color_extractor import ColorExtractor
 
             # Force eager loading for production deployment (Railway)
             logger.info("🚀 Initializing AI models with eager loading...")
@@ -141,8 +145,8 @@ def initialize_services() -> dict:
     
     # Initialize Depth Estimation Service (for map generation)
     try:
-        from models.depth_estimator import DepthEstimator, DepthConfig
-        from models.edge_detector import EdgeDetector
+        from depth_estimator import DepthEstimator, DepthConfig
+        from edge_detector import EdgeDetector
         
         # Force eager loading of depth models for production
         logger.info("🚀 Initializing depth estimation models with eager loading...")
