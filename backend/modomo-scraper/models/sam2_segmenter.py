@@ -143,13 +143,15 @@ class SAM2Segmenter:
     
     def __init__(self, 
                  config: Optional[SegmentationConfig] = None,
-                 device: Optional[str] = None):
+                 device: Optional[str] = None,
+                 eager_load: bool = True):
         """
         Initialize SAM2 segmenter with configuration.
         
         Args:
             config: SegmentationConfig instance
             device: Override device ("cuda" or "cpu")
+            eager_load: If True, load models immediately during initialization
         """
         self.config = config or SegmentationConfig()
         
@@ -160,7 +162,7 @@ class SAM2Segmenter:
         # Determine actual device to use
         self.device = self._get_device()
         
-        # Model components (lazy-loaded)
+        # Model components (will be loaded eagerly or lazy)
         self.sam2_model = None
         self.sam2_predictor = None
         self.fba_model = None
@@ -173,6 +175,22 @@ class SAM2Segmenter:
         self._temp_files = []
         
         logger.info(f"SAM2Segmenter initialized - Device: {self.device}, SAM2 Available: {SAM2_AVAILABLE}")
+        
+        # Force eager loading of models if requested (production mode)
+        if eager_load:
+            logger.info("🚀 Eager loading SAM2 model for production deployment...")
+            try:
+                if SAM2_AVAILABLE:
+                    success = self._ensure_sam2_loaded()
+                    if success:
+                        logger.info("✅ SAM2 model loaded successfully during initialization")
+                    else:
+                        logger.warning("⚠️ SAM2 model failed to load during initialization")
+                else:
+                    logger.warning("⚠️ SAM2 not available - skipping eager loading")
+            except Exception as e:
+                logger.error(f"❌ SAM2 eager loading failed: {e}")
+                # Don't raise exception - allow fallback mode
     
     def _get_device(self) -> torch.device:
         """Determine the best available device"""

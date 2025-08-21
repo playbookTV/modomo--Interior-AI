@@ -102,11 +102,12 @@ def initialize_services() -> dict:
             from models.clip_embedder import CLIPEmbedder
             from models.color_extractor import ColorExtractor
 
+            # Force eager loading for production deployment (Railway)
             detector = GroundingDINODetector()
-            segmenter = SAM2Segmenter()
+            segmenter = SAM2Segmenter(eager_load=True)  # Force immediate model loading
             embedder = CLIPEmbedder()
             color_extractor = ColorExtractor()
-            logger.info("✅ All AI models loaded for DetectionService")
+            logger.info("✅ All AI models loaded eagerly for DetectionService")
         except ImportError as e:
             logger.warning(f"⚠️ Could not load all AI models for DetectionService: {e}")
         except Exception as e:
