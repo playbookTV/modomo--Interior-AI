@@ -13,6 +13,8 @@ logger = get_logger(__name__)
 _database_service: Optional[DatabaseService] = None
 _job_service: Optional[JobService] = None
 _detection_service: Optional[DetectionService] = None
+_depth_estimator = None
+_edge_detector = None
 _r2_client = None
 _r2_bucket_name = None
 
@@ -36,6 +38,20 @@ def set_detection_service(service: DetectionService):
     global _detection_service
     _detection_service = service
     logger.info("✅ Detection service registered")
+
+
+def set_depth_estimator(estimator):
+    """Set the global depth estimator instance"""
+    global _depth_estimator
+    _depth_estimator = estimator
+    logger.info("✅ Depth estimator registered")
+
+
+def set_edge_detector(detector):
+    """Set the global edge detector instance"""
+    global _edge_detector
+    _edge_detector = detector
+    logger.info("✅ Edge detector registered")
 
 
 def set_r2_client(client, bucket_name: str = None):
@@ -67,6 +83,16 @@ def get_r2_client():
     return _r2_client
 
 
+def get_depth_estimator():
+    """Get depth estimator instance for dependency injection"""
+    return _depth_estimator
+
+
+def get_edge_detector():
+    """Get edge detector instance for dependency injection"""
+    return _edge_detector
+
+
 def get_r2_bucket_name() -> str:
     """Get R2 bucket name"""
     return _r2_bucket_name
@@ -78,5 +104,6 @@ def check_services_ready() -> dict:
         "database_service": _database_service is not None,
         "job_service": _job_service is not None and (_job_service.is_available() if hasattr(_job_service, 'is_available') else True),
         "detection_service": _detection_service is not None,
+        "depth_service": _depth_estimator is not None,
         "r2_storage": _r2_client is not None
     }

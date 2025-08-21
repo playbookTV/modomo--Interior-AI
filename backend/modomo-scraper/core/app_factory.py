@@ -126,6 +126,29 @@ def initialize_services() -> dict:
         services_status["detection_service"] = f"error: {e}"
         logger.error(f"❌ Detection service initialization failed: {e}")
     
+    # Initialize Depth Estimation Service (for map generation)
+    try:
+        from models.depth_estimator import DepthEstimator, DepthConfig
+        from models.edge_detector import EdgeDetector
+        
+        # Force eager loading of depth models for production
+        depth_estimator = DepthEstimator(DepthConfig())
+        edge_detector = EdgeDetector()
+        
+        # Store in global state for later use by map generation endpoints
+        from core.dependencies import set_depth_estimator, set_edge_detector
+        set_depth_estimator(depth_estimator)
+        set_edge_detector(edge_detector)
+        
+        services_status["depth_service"] = "initialized"
+        logger.info("✅ Depth estimation service initialized with eager loading")
+    except ImportError as e:
+        services_status["depth_service"] = f"import_error: {e}"
+        logger.warning(f"⚠️ Depth estimation service not available: {e}")
+    except Exception as e:
+        services_status["depth_service"] = f"error: {e}"
+        logger.error(f"❌ Depth estimation service initialization failed: {e}")
+    
     # Initialize R2 Client for mask storage
     try:
         import boto3
