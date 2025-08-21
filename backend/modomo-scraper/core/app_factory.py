@@ -97,12 +97,23 @@ def initialize_services() -> dict:
         color_extractor = None
 
         try:
+            # Add current directory to Python path to ensure model imports work
+            import sys
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+                logger.info(f"Added {project_root} to Python path for model imports")
+            
+            # Now import AI models with better error handling
             from models.grounding_dino import GroundingDINODetector
             from models.sam2_segmenter import SAM2Segmenter
             from models.clip_embedder import CLIPEmbedder
             from models.color_extractor import ColorExtractor
 
             # Force eager loading for production deployment (Railway)
+            logger.info("🚀 Initializing AI models with eager loading...")
             detector = GroundingDINODetector()
             segmenter = SAM2Segmenter(eager_load=True)  # Force immediate model loading
             embedder = CLIPEmbedder()
@@ -110,6 +121,8 @@ def initialize_services() -> dict:
             logger.info("✅ All AI models loaded eagerly for DetectionService")
         except ImportError as e:
             logger.warning(f"⚠️ Could not load all AI models for DetectionService: {e}")
+            logger.warning(f"🔍 Current working directory: {os.getcwd()}")
+            logger.warning(f"🔍 Python path: {sys.path[:3]}...")  # Show first few paths
         except Exception as e:
             logger.error(f"❌ Error loading AI models for DetectionService: {e}")
 
@@ -132,6 +145,7 @@ def initialize_services() -> dict:
         from models.edge_detector import EdgeDetector
         
         # Force eager loading of depth models for production
+        logger.info("🚀 Initializing depth estimation models with eager loading...")
         depth_estimator = DepthEstimator(DepthConfig())
         edge_detector = EdgeDetector()
         
@@ -145,6 +159,7 @@ def initialize_services() -> dict:
     except ImportError as e:
         services_status["depth_service"] = f"import_error: {e}"
         logger.warning(f"⚠️ Depth estimation service not available: {e}")
+        logger.warning(f"🔍 Import error details: {e}")
     except Exception as e:
         services_status["depth_service"] = f"error: {e}"
         logger.error(f"❌ Depth estimation service initialization failed: {e}")
