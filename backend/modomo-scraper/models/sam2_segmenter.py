@@ -83,18 +83,27 @@ class SegmentationConfig:
     def __post_init__(self):
         """Auto-configure model paths from Railway Volume"""
         if self.sam2_checkpoint is None:
-            # Check Railway Volume model cache first, then fallback locations
-            volume_path = f"/app/model_cache/sam2/{self.model_type}.pt"
-            checkpoint_path = f"/app/checkpoints/{self.model_type}.pt"
+            # Check Railway environment variable first, then fallback locations
+            railway_path = os.environ.get('SAM2_CHECKPOINT_DIR', '/app/models/sam2')
+            railway_checkpoint = f"{railway_path}/{self.model_type}.pt"
             
-            if os.path.exists(volume_path):
-                self.sam2_checkpoint = volume_path
-                logger.info(f"✅ Using SAM2 model from Railway Volume cache: {volume_path}")
-            elif os.path.exists(checkpoint_path):
-                self.sam2_checkpoint = checkpoint_path
-                logger.info(f"✅ Using SAM2 model from checkpoints: {checkpoint_path}")
-            else:
-                logger.warning(f"⚠️ SAM2 checkpoint not found in cache or checkpoints for {self.model_type}")
+            # Try multiple possible paths in order of priority
+            possible_paths = [
+                railway_checkpoint,  # Railway volume path from env var
+                f"/app/model_cache/sam2/{self.model_type}.pt",  # Legacy cache path
+                f"/app/checkpoints/{self.model_type}.pt",  # Legacy checkpoint path
+                f"/app/models/sam2_hiera_large.pt",  # Direct models path
+                f"/app/models/{self.model_type}.pt"  # Models with type name
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    self.sam2_checkpoint = path
+                    logger.info(f"✅ Using SAM2 model from: {path}")
+                    return
+                    
+            logger.warning(f"⚠️ SAM2 checkpoint not found for {self.model_type}")
+            logger.info(f"🔍 Checked paths: {possible_paths}")
     
     # Processing parameters
     min_mask_area: int = 500       # Minimum mask area (pixels)
@@ -377,13 +386,19 @@ class SAM2Segmenter:
     
     def _get_default_sam2_checkpoint(self) -> Optional[str]:
         """Get default SAM2 checkpoint path"""
+        # Get Railway path from environment
+        railway_path = os.environ.get('SAM2_CHECKPOINT_DIR', '/app/models/sam2')
+        
         # Common checkpoint locations (prioritize Railway/Docker paths)
         possible_paths = [
-            "/app/checkpoints/sam2_hiera_large.pt",  # Railway/Docker
-            "/app/checkpoints/sam2_hiera_base_plus.pt",  # Fallback model
+            f"{railway_path}/sam2_hiera_large.pt",  # Railway volume path
+            f"{railway_path}/sam2_hiera_base_plus.pt",  # Railway fallback
+            "/app/models/sam2_hiera_large.pt",  # Direct models path
+            "/app/models/sam2/sam2_hiera_large.pt",  # Models subdirectory
+            "/app/checkpoints/sam2_hiera_large.pt",  # Legacy checkpoint path
+            "/app/checkpoints/sam2_hiera_base_plus.pt",  # Legacy fallback model
             "checkpoints/sam2_hiera_large.pt",  # Local development
             "models/sam2_hiera_large.pt",
-            "/app/models/sam2_hiera_large.pt",
             os.path.expanduser("~/.cache/sam2/sam2_hiera_large.pt")
         ]
         
@@ -393,6 +408,7 @@ class SAM2Segmenter:
                 return path
         
         logger.warning("No default SAM2 checkpoint found")
+        logger.info(f"🔍 Searched paths: {possible_paths}")
         return None
     
     def _sam2_segment(self, image: np.ndarray, bbox: List[float], class_hint: Optional[str] = None) -> Optional[np.ndarray]:
