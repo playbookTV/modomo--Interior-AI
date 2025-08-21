@@ -104,6 +104,15 @@ class SegmentationConfig:
                     
             logger.warning(f"⚠️ SAM2 checkpoint not found for {self.model_type}")
             logger.info(f"🔍 Checked paths: {possible_paths}")
+            
+            # Try to download SAM2 checkpoint if not found
+            try:
+                downloaded_path = self._download_sam2_checkpoint()
+                if downloaded_path:
+                    self.sam2_checkpoint = downloaded_path
+                    logger.info(f"✅ Downloaded SAM2 model to: {downloaded_path}")
+            except Exception as download_error:
+                logger.warning(f"⚠️ Failed to download SAM2 checkpoint: {download_error}")
     
     # Processing parameters
     min_mask_area: int = 500       # Minimum mask area (pixels)
@@ -410,6 +419,62 @@ class SAM2Segmenter:
         logger.warning("No default SAM2 checkpoint found")
         logger.info(f"🔍 Searched paths: {possible_paths}")
         return None
+    
+    def _download_sam2_checkpoint(self) -> Optional[str]:
+        """Download SAM2 checkpoint if not available"""
+        try:
+            import requests
+            import tempfile
+            
+            # SAM2 checkpoint URLs from Meta
+            checkpoint_urls = {
+                "sam2_hiera_large": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt",
+                "sam2_hiera_base_plus": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_base_plus.pt",
+                "sam2_hiera_small": "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_small.pt"
+            }
+            
+            if self.config.model_type not in checkpoint_urls:
+                logger.warning(f"No download URL available for {self.config.model_type}")
+                return None
+            
+            url = checkpoint_urls[self.config.model_type]
+            
+            # Determine download path
+            railway_path = os.environ.get('SAM2_CHECKPOINT_DIR', '/app/models/sam2')
+            os.makedirs(railway_path, exist_ok=True)
+            download_path = f"{railway_path}/{self.config.model_type}.pt"
+            
+            # Skip if already exists (might have been downloaded by another worker)
+            if os.path.exists(download_path):
+                logger.info(f"SAM2 checkpoint already exists at {download_path}")
+                return download_path
+            
+            logger.info(f"📥 Downloading SAM2 checkpoint from {url}")
+            
+            # Download with progress tracking
+            response = requests.get(url, stream=True, timeout=300)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(download_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Log progress every 100MB
+                        if downloaded % (100 * 1024 * 1024) == 0:
+                            progress = (downloaded / total_size * 100) if total_size > 0 else 0
+                            logger.info(f"📥 Download progress: {progress:.1f}% ({downloaded / 1024 / 1024:.1f}MB)")
+            
+            logger.info(f"✅ SAM2 checkpoint downloaded successfully to {download_path}")
+            return download_path
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to download SAM2 checkpoint: {e}")
+            return None
     
     def _sam2_segment(self, image: np.ndarray, bbox: List[float], class_hint: Optional[str] = None) -> Optional[np.ndarray]:
         """Segment using SAM2 model"""

@@ -335,12 +335,19 @@ class RailwayDetectionHTTPClient:
                 result = response.json()
                 logger.info(f"📊 Railway response: {result}")
                 
-                if "results" in result and result["results"]:
+                # Check if this is a synchronous response (has status="completed")
+                if result.get("status") == "completed":
+                    # Synchronous response - use results directly
+                    results = result.get("results", [])
+                    logger.info(f"✅ Railway synchronous detection completed: {len(results)} objects detected")
+                    return results
+                elif "results" in result and result["results"]:
+                    # Direct results without polling
                     logger.info(f"✅ Railway detection successful: {len(result['results'])} objects detected")
                     return result["results"]
-                elif "job_id" in result:
+                elif "job_id" in result and result.get("status") != "completed":
+                    # Asynchronous response - need to poll for results
                     logger.info(f"⏳ Railway returned job_id: {result['job_id']}, polling for results...")
-                    # If Railway returns a job_id, we need to poll for results
                     railway_job_id = result["job_id"]
                     return await self._poll_railway_job(railway_job_id)
                 else:
