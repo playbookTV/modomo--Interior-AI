@@ -307,12 +307,15 @@ class RailwayDetectionHTTPClient:
             import requests
             import asyncio
             
-            # Make HTTP request to Railway detection endpoint
+            # Make synchronous HTTP request to Railway detection endpoint 
+            # Force synchronous processing with sync=True
             payload = {
                 "image_url": image_url,
-                "scene_id": None,  # We'll use job_id for tracking
-                "taxonomy": taxonomy
+                "scene_id": job_id,  # Use our job_id for tracking
+                "sync": True  # Force synchronous processing on Railway
             }
+            
+            logger.info(f"🚀 Calling Railway AI detection: {self.base_url}/detect/process")
             
             # Use requests in a thread to avoid blocking
             loop = asyncio.get_event_loop()
@@ -321,28 +324,38 @@ class RailwayDetectionHTTPClient:
                 lambda: requests.post(
                     f"{self.base_url}/detect/process",
                     json=payload,
-                    timeout=300  # 5 minute timeout for AI processing
+                    timeout=300,  # 5 minute timeout for AI processing
+                    headers={"Content-Type": "application/json"}
                 )
             )
             
+            logger.info(f"🔍 Railway response status: {response.status_code}")
+            
             if response.status_code == 200:
                 result = response.json()
-                if "results" in result:
+                logger.info(f"📊 Railway response: {result}")
+                
+                if "results" in result and result["results"]:
                     logger.info(f"✅ Railway detection successful: {len(result['results'])} objects detected")
                     return result["results"]
                 elif "job_id" in result:
+                    logger.info(f"⏳ Railway returned job_id: {result['job_id']}, polling for results...")
                     # If Railway returns a job_id, we need to poll for results
                     railway_job_id = result["job_id"]
                     return await self._poll_railway_job(railway_job_id)
                 else:
-                    logger.warning("Railway detection returned unexpected format")
+                    logger.warning(f"⚠️ Railway detection returned unexpected format: {result}")
+                    # Check if result itself contains detection data
+                    if isinstance(result, list):
+                        logger.info(f"✅ Railway returned direct results: {len(result)} objects")
+                        return result
                     return []
             else:
-                logger.error(f"Railway detection failed: {response.status_code} - {response.text}")
+                logger.error(f"❌ Railway detection failed: {response.status_code} - {response.text}")
                 return []
                 
         except Exception as e:
-            logger.error(f"Railway detection pipeline failed: {e}")
+            logger.error(f"💥 Railway detection pipeline failed: {e}")
             return []
     
     async def _poll_railway_job(self, railway_job_id: str, max_polls: int = 60) -> list:

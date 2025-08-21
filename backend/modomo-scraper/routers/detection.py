@@ -17,6 +17,7 @@ router = APIRouter(prefix="/detect", tags=["detection"])
 async def process_detection(
     image_url: str = Body(...),
     scene_id: str = Body(None),
+    sync: bool = Body(False),  # Add sync parameter
     background_tasks: BackgroundTasks = None,
     detection_service = Depends(get_detection_service),
     job_service = Depends(get_job_service),
@@ -34,12 +35,23 @@ async def process_detection(
             parameters={
                 "image_url": image_url,
                 "scene_id": scene_id,
-                "job_type": "detection"
+                "job_type": "detection",
+                "sync": sync
             }
         )
     
-    if background_tasks and job_service:
-        # Create job tracking
+    # Force synchronous processing if sync=True (for Heroku workers)
+    if sync or not background_tasks or not job_service:
+        # Run synchronously 
+        if not detection_service:
+            return {"error": "Detection service not available"}
+        
+        logger.info(f"🚀 Running synchronous AI detection on {image_url}")
+        results = await detection_service.run_detection_pipeline(image_url, job_id, MODOMO_TAXONOMY)
+        logger.info(f"✅ Synchronous AI detection completed: {len(results) if results else 0} objects detected")
+        return {"job_id": job_id, "results": results, "status": "completed"}
+    else:
+        # Run asynchronously (original behavior)
         job_service.create_job(
             job_id=job_id,
             job_type="detection",
@@ -56,13 +68,6 @@ async def process_detection(
             scene_id
         )
         return {"job_id": job_id, "status": "processing"}
-    else:
-        # Run synchronously for testing
-        if not detection_service:
-            return {"error": "Detection service not available"}
-        
-        results = await detection_service.run_detection_pipeline(image_url, job_id, MODOMO_TAXONOMY)
-        return {"job_id": job_id, "results": results}
 
 
 async def run_detection_task(

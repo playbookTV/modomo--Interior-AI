@@ -386,7 +386,7 @@ async def generate_maps_batch(
         
         # Import map generation dependencies
         from models.map_generator import MapGenerator, MapGenerationConfig
-        from models.depth_estimator import DepthAnythingV2
+        from models.depth_estimator import DepthEstimator, DepthConfig
         from models.edge_detector import EdgeDetector
         
         # Initialize map generator
@@ -397,7 +397,7 @@ async def generate_maps_batch(
         )
         
         try:
-            depth_estimator = DepthAnythingV2()
+            depth_estimator = DepthEstimator(DepthConfig())
             edge_detector = EdgeDetector()
             map_generator = MapGenerator(depth_estimator, edge_detector, config)
         except Exception as e:

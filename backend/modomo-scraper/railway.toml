@@ -5,9 +5,9 @@ dockerfilePath = "Dockerfile.smart"
 [deploy]
 startCommand = "python main_refactored.py"
 healthcheckPath = "/health"
-healthcheckTimeout = 300
-# Increased timeout for initial model loading
-startupTimeout = 600
+healthcheckTimeout = 600
+# Increased timeout for initial model loading and service dependencies
+startupTimeout = 900
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 

@@ -26,11 +26,16 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("🚀 Starting Modomo Dataset Scraping System - Refactored Architecture")
+    import os
+    
+    # Use Railway's PORT env var or fallback to 8000
+    port = int(os.environ.get("PORT", 8000))
+    
+    logger.info(f"🚀 Starting Modomo Dataset Scraping System on port {port}")
     uvicorn.run(
         "main_refactored:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=False,  # Disable reload in production
         log_level="info"
     )
