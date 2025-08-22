@@ -2,19 +2,17 @@
 Modomo Dataset Scraping System - Refactored Main Application
 Clean modular architecture with proper separation of concerns and dependency injection
 """
+from contextlib import asynccontextmanager
 from core.app_factory import create_complete_app
 from core.dependencies import check_services_ready
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Create the application instance
-app = create_complete_app()
-
-# Log final application status
-@app.on_event("startup")
-async def startup_event():
-    """Log application startup status"""
+@asynccontextmanager
+async def lifespan(app):
+    """Application lifespan handler"""
+    # Startup
     services = check_services_ready()
     logger.info("🚀 Modomo Dataset Scraping System - Refactored Architecture")
     logger.info(f"📊 Services Status: {services}")
@@ -22,6 +20,14 @@ async def startup_event():
     ready_services = sum(1 for status in services.values() if status)
     total_services = len(services)
     logger.info(f"✅ Application started successfully ({ready_services}/{total_services} services ready)")
+    
+    yield
+    
+    # Shutdown
+    logger.info("🛑 Application shutting down")
+
+# Create the application instance with lifespan
+app = create_complete_app(lifespan=lifespan)
 
 
 if __name__ == "__main__":

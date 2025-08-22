@@ -105,14 +105,8 @@ class SegmentationConfig:
             logger.warning(f"⚠️ SAM2 checkpoint not found for {self.model_type}")
             logger.info(f"🔍 Checked paths: {possible_paths}")
             
-            # Try to download SAM2 checkpoint if not found
-            try:
-                downloaded_path = self._download_sam2_checkpoint()
-                if downloaded_path:
-                    self.sam2_checkpoint = downloaded_path
-                    logger.info(f"✅ Downloaded SAM2 model to: {downloaded_path}")
-            except Exception as download_error:
-                logger.warning(f"⚠️ Failed to download SAM2 checkpoint: {download_error}")
+            # SAM2 checkpoint not found - will use fallback segmentation
+            logger.warning(f"⚠️ SAM2 checkpoint not found - will use fallback segmentation")
     
     # Processing parameters
     min_mask_area: int = 500       # Minimum mask area (pixels)

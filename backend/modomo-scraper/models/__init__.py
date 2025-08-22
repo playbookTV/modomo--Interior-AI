@@ -17,6 +17,8 @@ try:
     from .grounding_dino import GroundingDINODetector
     from .clip_embedder import CLIPEmbedder
     from .color_extractor import ColorExtractor
+    from .depth_estimator import DepthEstimator, DepthConfig
+    from .edge_detector import EdgeDetector
 except ImportError as e:
     # Graceful fallback for missing dependencies
     print(f"⚠️ Some AI models not available: {e}")
@@ -26,5 +28,8 @@ __all__ = [
     'SegmentationConfig',
     'GroundingDINODetector', 
     'CLIPEmbedder',
-    'ColorExtractor'
+    'ColorExtractor',
+    'DepthEstimator',
+    'DepthConfig', 
+    'EdgeDetector'
 ]

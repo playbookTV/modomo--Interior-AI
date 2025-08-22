@@ -22,12 +22,13 @@ configure_logging()
 logger = get_logger(__name__)
 
 
-def create_app() -> FastAPI:
+def create_app(lifespan=None) -> FastAPI:
     """Create and configure FastAPI application"""
     app = FastAPI(
         title=settings.APP_TITLE,
         description=settings.APP_DESCRIPTION,
-        version=settings.APP_VERSION
+        version=settings.APP_VERSION,
+        lifespan=lifespan
     )
     
     # Add CORS middleware
@@ -90,52 +91,9 @@ def initialize_services() -> dict:
     # Initialize Detection Service
     try:
         from services.detection_service import DetectionService
-        # Import AI models locally to avoid circular dependency and allow graceful fallback
-        detector = None
-        segmenter = None
-        embedder = None
-        color_extractor = None
-
-        try:
-            # Add models directory to Python path for direct imports
-            import sys
-            import os
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(current_dir)
-            models_dir = os.path.join(project_root, 'models')
-            
-            if project_root not in sys.path:
-                sys.path.insert(0, project_root)
-            if models_dir not in sys.path:
-                sys.path.insert(0, models_dir)
-                logger.info(f"Added {models_dir} to Python path for direct model imports")
-            
-            # Import AI models directly (since models dir is in path)
-            from grounding_dino import GroundingDINODetector
-            from sam2_segmenter import SAM2Segmenter
-            from clip_embedder import CLIPEmbedder
-            from color_extractor import ColorExtractor
-
-            # Force eager loading for production deployment (Railway)
-            logger.info("🚀 Initializing AI models with eager loading...")
-            detector = GroundingDINODetector()
-            segmenter = SAM2Segmenter(eager_load=True)  # Force immediate model loading
-            embedder = CLIPEmbedder()
-            color_extractor = ColorExtractor()
-            logger.info("✅ All AI models loaded eagerly for DetectionService")
-        except ImportError as e:
-            logger.warning(f"⚠️ Could not load all AI models for DetectionService: {e}")
-            logger.warning(f"🔍 Current working directory: {os.getcwd()}")
-            logger.warning(f"🔍 Python path: {sys.path[:3]}...")  # Show first few paths
-        except Exception as e:
-            logger.error(f"❌ Error loading AI models for DetectionService: {e}")
-
-        detection_service = DetectionService(
-            detector=detector,
-            segmenter=segmenter,
-            embedder=embedder,
-            color_extractor=color_extractor
-        )
+        
+        # Initialize with lazy loading (original working approach)
+        detection_service = DetectionService()
         set_detection_service(detection_service)
         services_status["detection_service"] = "initialized"
         logger.info("✅ Detection service initialized")
@@ -145,11 +103,10 @@ def initialize_services() -> dict:
     
     # Initialize Depth Estimation Service (for map generation)
     try:
-        from depth_estimator import DepthEstimator, DepthConfig
-        from edge_detector import EdgeDetector
+        from models.depth_estimator import DepthEstimator, DepthConfig
+        from models.edge_detector import EdgeDetector
         
-        # Force eager loading of depth models for production
-        logger.info("🚀 Initializing depth estimation models with eager loading...")
+        # Initialize with lazy loading 
         depth_estimator = DepthEstimator(DepthConfig())
         edge_detector = EdgeDetector()
         
@@ -159,11 +116,10 @@ def initialize_services() -> dict:
         set_edge_detector(edge_detector)
         
         services_status["depth_service"] = "initialized"
-        logger.info("✅ Depth estimation service initialized with eager loading")
+        logger.info("✅ Depth estimation service initialized")
     except ImportError as e:
         services_status["depth_service"] = f"import_error: {e}"
         logger.warning(f"⚠️ Depth estimation service not available: {e}")
-        logger.warning(f"🔍 Import error details: {e}")
     except Exception as e:
         services_status["depth_service"] = f"error: {e}"
         logger.error(f"❌ Depth estimation service initialization failed: {e}")
@@ -361,12 +317,12 @@ def add_health_endpoints(app: FastAPI):
         }
 
 
-def create_app_without_routers() -> FastAPI:
+def create_app_without_routers(lifespan=None) -> FastAPI:
     """Create FastAPI application with services but WITHOUT routers (to avoid circular imports)"""
     logger.info("🚀 Creating Modomo Dataset Scraping Application (Phase 1: No routers)")
     
     # Create base app
-    app = create_app()
+    app = create_app(lifespan=lifespan)
     
     # Initialize services
     services_status = initialize_services()
@@ -456,10 +412,10 @@ def register_all_routers_post_init(app: FastAPI):
         return False
 
 
-def create_complete_app() -> FastAPI:
+def create_complete_app(lifespan=None) -> FastAPI:
     """Create complete application with post-initialization router registration"""
     # Phase 1: Create app with services but no routers
-    app = create_app_without_routers()
+    app = create_app_without_routers(lifespan=lifespan)
     
     # Phase 2: Register routers after services are ready  
     success = register_all_routers_post_init(app)

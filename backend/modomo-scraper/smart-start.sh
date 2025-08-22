@@ -79,4 +79,4 @@ else
 fi
 
 echo "🎯 Starting FastAPI application..."
-exec python main_railway.py
+exec python main_refactored.py

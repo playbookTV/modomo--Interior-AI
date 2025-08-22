@@ -482,6 +482,136 @@ async def generate_maps_batch(
         raise HTTPException(status_code=500, detail=f"Batch map generation failed: {str(e)}")
 
 
+@router.get("/scenes/{scene_id}/maps", response_model=None)
+async def get_scene_maps(
+    scene_id: str,
+    db_service = Depends(get_database_service)
+):
+    """Get existing maps for a scene"""
+    try:
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Get scene with map information
+        result = db_service.supabase.table("scenes").select(
+            "scene_id, depth_map_r2_key, edge_map_r2_key, maps_generated_at, maps_metadata"
+        ).eq("scene_id", scene_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Scene not found")
+        
+        scene = result.data[0]
+        
+        # Build response with available maps
+        maps = {}
+        if scene.get("depth_map_r2_key"):
+            maps["depth"] = {
+                "r2_key": scene["depth_map_r2_key"],
+                "url": f"https://pub-3626123a908346a7a8be8d9295f44e26.r2.dev/{scene['depth_map_r2_key']}"
+            }
+        if scene.get("edge_map_r2_key"):
+            maps["edge"] = {
+                "r2_key": scene["edge_map_r2_key"], 
+                "url": f"https://pub-3626123a908346a7a8be8d9295f44e26.r2.dev/{scene['edge_map_r2_key']}"
+            }
+        
+        return {
+            "scene_id": scene_id,
+            "maps": maps,
+            "generated_at": scene.get("maps_generated_at"),
+            "metadata": scene.get("maps_metadata", {})
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get maps for scene {scene_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get scene maps: {str(e)}")
+
+
+@router.post("/generate-maps/{scene_id}", response_model=None)
+async def generate_scene_maps(
+    scene_id: str,
+    map_types: List[str] = Query(["depth", "edge"], description="Types of maps to generate"),
+    force_regenerate: bool = Query(False, description="Force regenerate existing maps"),
+    db_service = Depends(get_database_service),
+    job_service = Depends(get_job_service)
+):
+    """Generate depth and edge maps for a specific scene"""
+    try:
+        if not db_service or not db_service.supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Get scene information
+        scene_result = db_service.supabase.table("scenes").select(
+            "scene_id, image_url, depth_map_r2_key, edge_map_r2_key"
+        ).eq("scene_id", scene_id).execute()
+        
+        if not scene_result.data:
+            raise HTTPException(status_code=404, detail="Scene not found")
+        
+        scene = scene_result.data[0]
+        
+        # Check if maps already exist and force_regenerate is False
+        if not force_regenerate:
+            existing_maps = []
+            if "depth" in map_types and scene.get("depth_map_r2_key"):
+                existing_maps.append("depth")
+            if "edge" in map_types and scene.get("edge_map_r2_key"):
+                existing_maps.append("edge")
+            
+            if existing_maps:
+                return {
+                    "message": f"Maps already exist for scene {scene_id}: {existing_maps}. Use force_regenerate=true to regenerate.",
+                    "existing_maps": existing_maps,
+                    "scene_id": scene_id
+                }
+        
+        job_id = str(uuid.uuid4())
+        
+        # Create job tracking
+        if job_service:
+            job_service.create_job(
+                job_id=job_id,
+                job_type="map_generation",
+                total=len(map_types),
+                message=f"Starting map generation for scene {scene_id}"
+            )
+        
+        # Generate maps using detection service
+        from core.dependencies import get_detection_service
+        detection_service = get_detection_service()
+        
+        if not detection_service:
+            raise HTTPException(status_code=503, detail="Detection service not available")
+        
+        # Generate maps
+        results = await detection_service.generate_scene_maps(
+            scene["image_url"], 
+            scene_id, 
+            map_types
+        )
+        
+        if job_service:
+            job_service.complete_job(job_id, f"Map generation completed for scene {scene_id}")
+        
+        return {
+            "job_id": job_id,
+            "scene_id": scene_id,
+            "message": f"Maps generated successfully for scene {scene_id}",
+            "maps_generated": results.get("maps_generated", {}),
+            "map_types": map_types
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Map generation failed for scene {scene_id}: {e}")
+        if 'job_service' in locals() and job_service:
+            job_service.fail_job(job_id, str(e))
+        raise HTTPException(status_code=500, detail=f"Map generation failed: {str(e)}")
+
+
 @router.post("/retry-pending", response_model=None)
 async def retry_pending_jobs(
     job_type: str = Query(None, description="Filter by job type"),
