@@ -103,14 +103,15 @@ ujson
 orjson
 
 # === DEPTH & MAP GENERATION ===
-# Python 3.12+ compatible depth estimation
-timm>=0.9.0  # Required for modern depth models
+# Primary: Depth Anything V2 (best quality, Railway compatible)
+# Install from specific branch that fixes dependency conflicts
+git+https://github.com/badayvedat/Depth-Anything-V2.git@badayvedat-patch-1
 
-# Note: zoedepth not compatible with Python 3.12+
-# Note: depth-anything-v2 has dependency conflicts with huggingface-hub
-# System will use MiDaS or DPT models via transformers for depth estimation
-# Install depth-anything-v2 separately after deployment if needed:
-# pip install git+https://github.com/badayvedat/Depth-Anything-V2.git@badayvedat-patch-1
+# Fallback: MiDaS via transformers (guaranteed compatibility)
+timm>=0.9.0  # Required for DPT/MiDaS models
+
+# Additional depth model dependencies
+accelerate>=0.20.0  # For transformers pipeline optimization
 
 # === CELERY TASK QUEUE ===
 # Background task processing with Celery

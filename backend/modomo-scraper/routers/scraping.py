@@ -20,7 +20,7 @@ except ImportError:
     logger.warning("⚠️ Houzz crawler not available - scraping disabled")
 
 
-@router.post(", response_model=None/scenes")
+@router.post("/scenes", response_model=None)
 async def start_scene_scraping(
     background_tasks: BackgroundTasks,
     limit: int = Query(10, description="Number of scenes to scrape"),
@@ -125,7 +125,52 @@ async def start_scene_scraping(
     }
 
 
-@router.post(", response_model=None/import/huggingface-dataset")
+@router.get("/scenes/{job_id}/status", response_model=None)
+async def get_scraping_status(
+    job_id: str,
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
+):
+    """Get the status of a scraping job"""
+    
+    # First try Redis (active jobs)
+    if job_service and job_service.is_available():
+        job_data = job_service.get_job(job_id)
+        if job_data:
+            return job_data
+    
+    # Fallback to database (historical jobs)
+    if db_service and db_service.supabase:
+        try:
+            # Handle compound job IDs - only use the first part for database lookup
+            db_job_id = job_id.split('-')[0] if '-' in job_id else job_id
+            
+            result = db_service.supabase.table("scraping_jobs").select("*").eq("job_id", db_job_id).execute()
+            
+            if result.data:
+                db_job = result.data[0]
+                # Convert database format to match Redis format
+                return {
+                    "job_id": job_id,  # Return original job_id
+                    "status": db_job.get("status", "unknown"),
+                    "job_type": db_job.get("job_type", "scraping"),
+                    "message": db_job.get("error_message") or f"Scraping job {db_job.get('status', 'completed')}",
+                    "total": str(db_job.get("total_items", 1)),
+                    "processed": str(db_job.get("processed_items", 0)),
+                    "progress": str(int((db_job.get("processed_items", 0) / max(db_job.get("total_items", 1), 1)) * 100)),
+                    "created_at": db_job.get("created_at", ""),
+                    "updated_at": db_job.get("updated_at", ""),
+                    "source": "database"
+                }
+        except Exception as e:
+            logger.error(f"Failed to fetch scraping job from database: {e}")
+    
+    # Job not found in either Redis or database
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail=f"Scraping job {job_id} not found")
+
+
+@router.post("/import/huggingface-dataset", response_model=None)
 async def import_huggingface_dataset(
     background_tasks: BackgroundTasks,
     dataset: str = Query("sk2003/houzzdata", description="HuggingFace dataset ID (e.g., username/dataset-name)"),

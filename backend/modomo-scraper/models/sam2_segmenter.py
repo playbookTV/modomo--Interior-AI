@@ -218,9 +218,11 @@ class SAM2Segmenter:
             else:
                 bbox_xyxy = bbox
             
-            # Generate unique output path
+            # Generate unique output path and upload to R2
             mask_id = f"mask_{uuid.uuid4().hex[:8]}"
-            output_dir = "/app/cache_volume/masks"  # Use persistent cache directory
+            
+            # Use temp directory for local processing, then upload to R2
+            output_dir = "/tmp/masks"
             os.makedirs(output_dir, exist_ok=True)
             
             result = await self.segment_advanced(
@@ -295,13 +297,16 @@ class SAM2Segmenter:
             if mask is None:
                 return {"success": False, "error": "Failed to generate mask"}
             
-            # Save mask
-            mask_path = os.path.join(output_dir, f"{object_id}_mask.png")
-            self._save_mask(mask, mask_path)
+            # Save mask locally and upload to R2
+            local_mask_path = os.path.join(output_dir, f"{object_id}_mask.png")
+            self._save_mask(mask, local_mask_path, upload_to_r2=True)
+            
+            # Use R2 URL if available, otherwise fall back to local path
+            mask_url = getattr(self, '_last_r2_url', None) or local_mask_path
             
             result = {
                 "success": True,
-                "mask_path": mask_path,
+                "mask_path": mask_url,  # This will be the R2 URL
                 "mask_area": int(np.sum(mask > 0)),
                 "bbox": bbox,
                 "object_id": object_id
@@ -619,13 +624,13 @@ class SAM2Segmenter:
             logger.error(f"Connected components analysis failed: {e}")
             return mask
     
-    def _save_mask(self, mask: np.ndarray, output_path: str):
-        """Save mask to file"""
+    def _save_mask(self, mask: np.ndarray, output_path: str, upload_to_r2: bool = True):
+        """Save mask to file and optionally upload to R2"""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Convert to PIL Image and save
+            # Convert to PIL Image and save locally first
             if mask.dtype != np.uint8:
                 mask = (mask * 255).astype(np.uint8)
             
@@ -633,14 +638,57 @@ class SAM2Segmenter:
             mask_image.save(output_path, format=self.config.output_format, 
                           compress_level=self.config.compression_level)
             
+            logger.debug(f"Mask saved locally to {output_path}")
+            
+            # Upload to R2 storage if requested
+            if upload_to_r2:
+                r2_url = self._upload_mask_to_r2(output_path)
+                if r2_url:
+                    logger.info(f"✅ Mask uploaded to R2: {r2_url}")
+                    # Store R2 URL in a way that can be retrieved later
+                    setattr(self, '_last_r2_url', r2_url)
+                else:
+                    logger.warning("⚠️ Failed to upload mask to R2 - falling back to local path")
+            
             # Track temp file for cleanup
             if self.config.cleanup_temp_files:
                 self._temp_files.append(output_path)
             
-            logger.debug(f"Mask saved to {output_path}")
-            
         except Exception as e:
             logger.error(f"Failed to save mask to {output_path}: {e}")
+    
+    def _upload_mask_to_r2(self, local_path: str) -> Optional[str]:
+        """Upload mask file to R2 storage and return public URL"""
+        try:
+            # Import and initialize R2 uploader
+            from services.r2_uploader import create_r2_uploader, upload_to_r2_sync
+            
+            uploader = create_r2_uploader()
+            if not uploader.is_available:
+                logger.warning("R2 uploader not available")
+                return None
+            
+            # Generate R2 key for mask
+            filename = os.path.basename(local_path)
+            r2_key = f"masks/{filename}"
+            
+            # Read file data for sync upload
+            with open(local_path, 'rb') as f:
+                file_data = f.read()
+            
+            # Use sync upload function
+            public_url = upload_to_r2_sync(file_data, r2_key, "image/png", uploader)
+            
+            if public_url:
+                logger.info(f"✅ Uploaded mask to R2: {public_url}")
+                return public_url
+            else:
+                logger.error("Failed to upload mask to R2")
+                return None
+                
+        except Exception as e:
+            logger.error(f"R2 upload error: {e}")
+            return None
     
     def _generate_rgba_cutout(self, image: np.ndarray, mask: np.ndarray, 
                             output_dir: str, object_id: str) -> Optional[str]:

@@ -2,7 +2,7 @@
 Object detection and AI processing API routes
 """
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Body, Query, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Query, Depends, HTTPException
 from typing import Dict, Any
 import structlog
 
@@ -91,6 +91,107 @@ async def run_detection_task(
     except Exception as e:
         logger.error(f"Detection task failed: {e}")
         job_service.fail_job(job_id, str(e))
+
+
+@router.post("/process/batch", response_model=None)
+async def process_batch_detection(
+    scene_ids: list[str] = Body(..., description="Array of scene IDs to process"),
+    background_tasks: BackgroundTasks = None,
+    detection_service = Depends(get_detection_service),
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
+):
+    """Run object detection on multiple scenes"""
+    job_id = str(uuid.uuid4())
+    
+    # Create job record in database for batch processing
+    if db_service:
+        await db_service.create_job_in_database(
+            job_id=job_id,
+            job_type="detection",
+            total_items=len(scene_ids),
+            parameters={
+                "scene_ids": scene_ids,
+                "job_type": "batch_detection"
+            }
+        )
+    
+    # Create job in Redis for real-time tracking
+    if job_service:
+        job_service.create_job(
+            job_id=job_id,
+            job_type="detection",
+            total=len(scene_ids),
+            message=f"Starting batch detection for {len(scene_ids)} scenes"
+        )
+    
+    # Process scenes in background
+    if detection_service:
+        try:
+            background_tasks.add_task(
+                run_batch_detection_task,
+                scene_ids=scene_ids,
+                job_id=job_id,
+                detection_service=detection_service,
+                job_service=job_service,
+                db_service=db_service
+            )
+            
+            return {
+                "job_id": job_id,
+                "status": "started",
+                "message": f"Batch detection started for {len(scene_ids)} scenes",
+                "scene_count": len(scene_ids)
+            }
+        except Exception as e:
+            logger.error(f"Failed to start batch detection: {e}")
+            if job_service:
+                job_service.fail_job(job_id, str(e))
+            raise HTTPException(status_code=500, detail=f"Failed to start batch detection: {str(e)}")
+    else:
+        if job_service:
+            job_service.fail_job(job_id, "Detection service not available")
+        raise HTTPException(status_code=503, detail="Detection service not available")
+
+
+async def run_batch_detection_task(
+    scene_ids: list[str],
+    job_id: str,
+    detection_service,
+    job_service,
+    db_service
+):
+    """Background task to process multiple scenes for detection"""
+    try:
+        for i, scene_id in enumerate(scene_ids):
+            # Update progress
+            if job_service:
+                job_service.update_progress(
+                    job_id=job_id,
+                    processed=i,
+                    message=f"Processing scene {i+1}/{len(scene_ids)}: {scene_id}"
+                )
+            
+            # Get scene image URL from database
+            if db_service and db_service.supabase:
+                scene_result = db_service.supabase.table("scenes").select("image_url").eq("scene_id", scene_id).execute()
+                if scene_result.data:
+                    image_url = scene_result.data[0]["image_url"]
+                    
+                    # Run detection
+                    await detection_service.detect_objects(image_url, scene_id)
+                    logger.info(f"✅ Completed detection for scene {scene_id}")
+                else:
+                    logger.warning(f"⚠️ Scene {scene_id} not found in database")
+        
+        # Mark job as completed
+        if job_service:
+            job_service.complete_job(job_id, f"Batch detection completed for {len(scene_ids)} scenes")
+            
+    except Exception as e:
+        logger.error(f"Batch detection task failed: {e}")
+        if job_service:
+            job_service.fail_job(job_id, str(e))
 
 
 @router.post("/reclassify-scenes", response_model=None)

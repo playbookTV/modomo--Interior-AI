@@ -23,8 +23,15 @@ playwright>=1.40.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 
-# Image processing
+# Image processing & AI
 Pillow>=10.0.0
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+matplotlib>=3.7.0
+
+# PyTorch for AI models (CPU optimized)
+torch>=2.1.0
+torchvision>=0.16.0
 
 # Dataset import
 datasets>=2.14.0

@@ -49,10 +49,11 @@ RUN mkdir -p /app/temp /app/downloads /app/checkpoints /app/models
 # Copy application code
 COPY . .
 
-# Copy models source code
-RUN if [ -d "models/" ]; then cp -r models/ /app/models_src/ && mkdir -p /app/models && cp -r /app/models_src/* /app/models/ || true; fi
+# Ensure models directory is properly accessible
+RUN mkdir -p /app/models_cache
 
-ENV PYTHONPATH=/app:/app/models:/app/models_src
+# Set Python path to include current app directory
+ENV PYTHONPATH=/app
 ENV CLASSIFICATION_ENHANCED=true
 ENV KEYWORD_SYSTEM_VERSION=2.0
 

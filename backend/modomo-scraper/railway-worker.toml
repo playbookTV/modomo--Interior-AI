@@ -1,6 +1,6 @@
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.smart"
 
 [deploy]
 startCommand = "celery -A celery_app worker --loglevel=info --concurrency=2 -Q scraping,import,ai_processing,detection,color_processing,classification"

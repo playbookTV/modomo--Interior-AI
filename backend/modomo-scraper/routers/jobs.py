@@ -72,18 +72,45 @@ async def get_active_jobs(
 @router.get("/{job_id}/status", response_model=None)
 async def get_job_status(
     job_id: str, 
-    job_service = Depends(get_job_service)
+    job_service = Depends(get_job_service),
+    db_service = Depends(get_database_service)
 ):
     """Get the status and progress of a specific job"""
-    if not job_service or not job_service.is_available():
-        raise HTTPException(status_code=503, detail="Job tracking not available")
     
-    job_data = job_service.get_job(job_id)
+    # First try Redis (active jobs)
+    if job_service and job_service.is_available():
+        job_data = job_service.get_job(job_id)
+        if job_data:
+            return job_data
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # Fallback to database (historical jobs)
+    if db_service and db_service.supabase:
+        try:
+            # Handle compound job IDs - only use the first part for database lookup
+            db_job_id = job_id.split('-')[0] if '-' in job_id else job_id
+            
+            result = db_service.supabase.table("scraping_jobs").select("*").eq("job_id", db_job_id).execute()
+            
+            if result.data:
+                db_job = result.data[0]
+                # Convert database format to match Redis format
+                return {
+                    "job_id": job_id,  # Return original job_id
+                    "status": db_job.get("status", "unknown"),
+                    "job_type": db_job.get("job_type", "unknown"),
+                    "message": db_job.get("error_message") or f"Job {db_job.get('status', 'completed')}",
+                    "total": str(db_job.get("total_items", 1)),
+                    "processed": str(db_job.get("processed_items", 0)),
+                    "progress": str(int((db_job.get("processed_items", 0) / max(db_job.get("total_items", 1), 1)) * 100)),
+                    "created_at": db_job.get("created_at", ""),
+                    "updated_at": db_job.get("updated_at", ""),
+                    "source": "database"
+                }
+        except Exception as e:
+            logger.error(f"Failed to fetch job from database: {e}")
     
-    return job_data
+    # Job not found in either Redis or database
+    raise HTTPException(status_code=404, detail=f"Job {job_id} not found in active jobs or database")
 
 
 @router.get("/errors/recent", response_model=None)

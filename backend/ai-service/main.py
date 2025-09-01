@@ -1816,6 +1816,36 @@ async def get_prometheus_metrics():
         logger.error(f"Prometheus metrics generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/scenes/{scene_id}/maps")
+async def get_scene_maps(scene_id: str):
+    """Get depth and edge maps for a scene"""
+    try:
+        logger.info(f"Fetching maps for scene: {scene_id}")
+        
+        # Mock response for now - in production this would fetch from R2 storage
+        maps_data = {
+            "scene_id": scene_id,
+            "maps": {
+                "depth_map": {
+                    "url": f"https://ovalay-recruitment-production.up.railway.app/training-data/maps/{scene_id}_depth.png",
+                    "type": "depth",
+                    "generated_at": datetime.utcnow().isoformat()
+                },
+                "edge_map": {
+                    "url": f"https://ovalay-recruitment-production.up.railway.app/training-data/maps/{scene_id}_edges.png", 
+                    "type": "edge",
+                    "generated_at": datetime.utcnow().isoformat()
+                }
+            },
+            "status": "available"
+        }
+        
+        return maps_data
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch scene maps for {scene_id}: {e}")
+        raise HTTPException(status_code=404, detail=f"Maps not found for scene {scene_id}")
+
 @app.post("/monitoring/metrics/reset")
 async def reset_monitoring_metrics():
     """Reset all monitoring metrics"""
